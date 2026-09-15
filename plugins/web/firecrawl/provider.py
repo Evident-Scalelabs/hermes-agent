@@ -141,7 +141,7 @@ def _firecrawl_backend_help_suffix() -> str:
     return ", or use the Nous Tool Gateway via your subscription (FIRECRAWL_GATEWAY_URL or TOOL_GATEWAY_DOMAIN)" if _backend_helpers.managed_nous_tools_enabled() else ""
 
 
-def _get_firecrawl_client(timeout: float = 60.0) -> Any:
+def _get_firecrawl_client(timeout: Optional[float] = None) -> Any:
     """Get or create the cached Firecrawl client. Strict selection semantics on the stored ``web`` selection:
     ``"nous"`` → managed Tool Gateway ONLY; any other stored backend → direct Firecrawl ONLY (never a silent
     managed fallback billed to Nous); never-configured → direct when present, else managed. Raises ValueError
@@ -183,7 +183,7 @@ def _get_firecrawl_client(timeout: float = 60.0) -> Any:
     cached = getattr(wt, "_firecrawl_client", None)
     if cached is not None and getattr(wt, "_firecrawl_client_config", None) == client_config:
         return cached
-    wt._firecrawl_client = _KeylessFirecrawlClient(api_url=kwargs["api_url"]) if client_mode == "keyless" else Firecrawl(**kwargs, timeout=timeout, max_retries=0)
+    wt._firecrawl_client = _KeylessFirecrawlClient(api_url=kwargs["api_url"]) if client_mode == "keyless" else Firecrawl(**kwargs, **({"timeout": timeout, "max_retries": 0} if timeout is not None else {}))
     wt._firecrawl_client_config = client_config
     return wt._firecrawl_client
 

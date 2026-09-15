@@ -77,11 +77,11 @@ class TestFirecrawlClientConfig:
             with patch("tools.managed_tool_gateway.read_nous_access_token", return_value="nous-token"):
                 with patch("plugins.web.firecrawl.provider.Firecrawl") as mock_fc:
                     from plugins.web.firecrawl.provider import _get_firecrawl_client
-                    result = _get_firecrawl_client()
+                    result = _get_firecrawl_client(timeout=0.08)
                     mock_fc.assert_called_once_with(
                         api_key="nous-token",
                         api_url="https://firecrawl-gateway.nousresearch.com",
-                        timeout=60.0, max_retries=0,
+                        timeout=0.08, max_retries=0,
                     )
                     assert result is mock_fc.return_value
 
