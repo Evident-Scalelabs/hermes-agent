@@ -109,7 +109,8 @@ class _KeylessFirecrawlClient:
         self.api_url = api_url.rstrip("/")
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        response = httpx.post(f"{self.api_url}{path}", json=payload, headers={"Content-Type": "application/json"}, timeout=60.0)
+        from tools.web_tools_extract import extract_remaining_seconds
+        response = httpx.post(f"{self.api_url}{path}", json=payload, headers={"Content-Type": "application/json"}, timeout=extract_remaining_seconds(60.0))
         response.raise_for_status()
         return response.json()
 
@@ -140,7 +141,7 @@ def _firecrawl_backend_help_suffix() -> str:
     return ", or use the Nous Tool Gateway via your subscription (FIRECRAWL_GATEWAY_URL or TOOL_GATEWAY_DOMAIN)" if _backend_helpers.managed_nous_tools_enabled() else ""
 
 
-def _get_firecrawl_client() -> Any:
+def _get_firecrawl_client(timeout: Optional[float] = None) -> Any:
     """Get or create the cached Firecrawl client. Strict selection semantics on the stored ``web`` selection:
     ``"nous"`` → managed Tool Gateway ONLY; any other stored backend → direct Firecrawl ONLY (never a silent
     managed fallback billed to Nous); never-configured → direct when present, else managed. Raises ValueError
@@ -178,10 +179,11 @@ def _get_firecrawl_client() -> Any:
         logger.error("Firecrawl client initialization failed: %s", log)
         raise ValueError(message())
     client_mode, kwargs, client_config = resolved
+    client_config = (*client_config, timeout)
     cached = getattr(wt, "_firecrawl_client", None)
     if cached is not None and getattr(wt, "_firecrawl_client_config", None) == client_config:
         return cached
-    wt._firecrawl_client = _KeylessFirecrawlClient(api_url=kwargs["api_url"]) if client_mode == "keyless" else Firecrawl(**kwargs)
+    wt._firecrawl_client = _KeylessFirecrawlClient(api_url=kwargs["api_url"]) if client_mode == "keyless" else Firecrawl(**kwargs, **({"timeout": timeout, "max_retries": 0} if timeout is not None else {}))
     wt._firecrawl_client_config = client_config
     return wt._firecrawl_client
 
@@ -248,7 +250,13 @@ async def _scrape_one(url: str, formats: List[str], format: Optional[str]) -> Di
     try:
         logger.info("Firecrawl scraping: %s", url)
         try:
-            scrape_result = await asyncio.wait_for(asyncio.to_thread(_get_firecrawl_client().scrape, url=url, formats=formats), timeout=60)
+            from agent.deadline import run_bounded_sync
+            from tools.web_tools_extract import extract_remaining_seconds
+            remaining = extract_remaining_seconds(60.0)
+            bounded = await asyncio.to_thread(run_bounded_sync, lambda: _get_firecrawl_client(timeout=extract_remaining_seconds(remaining)).scrape(url=url, formats=formats), remaining, label="firecrawl.scrape")
+            if bounded.timed_out:
+                raise asyncio.TimeoutError
+            scrape_result = bounded.value
         except asyncio.TimeoutError:
             logger.warning("Firecrawl scrape timed out for %s", url)
             return _error_entry(url, _SCRAPE_TIMEOUT_MSG)

@@ -28,6 +28,21 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Protocol
 
 logger = logging.getLogger(__name__)
+_deadline_at: contextvars.ContextVar[Optional[float]] = contextvars.ContextVar("native_deadline_at", default=None)
+
+
+def remaining_deadline_seconds() -> Optional[float]:
+    """Remaining caller budget for nested provider work; None means no caller bound."""
+    deadline = _deadline_at.get()
+    return None if deadline is None else max(0.0, deadline - time.monotonic())
+
+
+def _deadline_context(deadline: float) -> contextvars.Context:
+    context = contextvars.copy_context()
+    parent = _deadline_at.get()
+    context.run(_deadline_at.set, min(parent, deadline) if parent is not None else deadline)
+    return context
+
 
 __all__ = [
     "MAX_SAFE_TIMEOUT_S", "BoundedResult", "DeadlineExpired", "clamp_timeout", "resolve_timeout",
@@ -230,7 +245,7 @@ async def run_bounded_async(
     if timeout_s is None:
         return _result(start, None, label, value=await awaitable)
 
-    task = asyncio.ensure_future(awaitable)
+    task = _deadline_context(start + timeout_s).run(asyncio.ensure_future, awaitable)
     loop = asyncio.get_running_loop()
     deadline: "asyncio.Future[None]" = loop.create_future()
     loop_processed_expiry = threading.Event()
@@ -302,7 +317,7 @@ def run_bounded_sync(
 
     box: dict[str, Any] = {}
     done = threading.Event()
-    ctx = contextvars.copy_context()
+    ctx = _deadline_context(start + timeout_s)
 
     def _worker() -> None:
         try:

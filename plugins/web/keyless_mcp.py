@@ -153,6 +153,8 @@ def mcp_call(url: str, tool: str, arguments: Dict[str, Any], timeout: int = _TIM
     """POST a JSON-RPC ``tools/call`` and return the text payload. Raises
     :class:`KeylessMCPError` on transport failures, non-2xx, JSON-RPC and tool errors."""
     import requests
+    from tools.web_tools_extract import extract_remaining_seconds
+    timeout = extract_remaining_seconds(timeout)
     payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream", "User-Agent": "hermes-agent"}
     try:
@@ -270,7 +272,8 @@ def _keenable_request(method: str, path: str, **kwargs: Any) -> Dict[str, Any]:
     headers = {"X-Keenable-Title": _KEENABLE_TITLE}
     if method == "post":
         headers["Content-Type"] = "application/json"
-    response = getattr(requests, method)(f"{KEENABLE_API_URL}{path}", headers=headers, timeout=_TIMEOUT_SECONDS, **kwargs)
+    from tools.web_tools_extract import extract_remaining_seconds
+    response = getattr(requests, method)(f"{KEENABLE_API_URL}{path}", headers=headers, timeout=extract_remaining_seconds(_TIMEOUT_SECONDS), **kwargs)
     if response.status_code >= 400:
         raise KeylessMCPError((response.text or "").strip() or f"HTTP {response.status_code}")
     return response.json()

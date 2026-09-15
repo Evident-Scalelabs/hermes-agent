@@ -9,6 +9,8 @@ one-shot keyless rescue. Logs under the origin (tools.web_tools) logger.
 import asyncio
 import json
 import logging
+import time
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
 
 from tools.tool_backend_helpers import selection_error, selection_exists
@@ -132,33 +134,81 @@ def _resolve_extract_provider(backend: str):
     return provider, None
 
 
-async def _dispatch_extract(provider, fetch_urls: List[str], format: Optional[str]) -> List[dict]:
-    """Call ``provider.extract`` (async or sync-in-thread), with one-shot keyless rescue.
+_extract_deadline: ContextVar[Optional[float]] = ContextVar("web_extract_deadline", default=None)
 
-    Rescue fires on a raised exception or when the WHOLE batch failed (backend outage, not per-page
-    problems). Rescued batches are never cached.
+
+def extract_remaining_seconds(limit: float = 120.0) -> float:
+    """Share the extraction deadline with provider HTTP calls and keyless rescue."""
+    from agent.deadline import remaining_deadline_seconds
+    caller_remaining = remaining_deadline_seconds()
+    if caller_remaining is not None:
+        limit = min(limit, caller_remaining)
+    deadline = _extract_deadline.get()
+    remaining = limit if deadline is None else min(limit, deadline - time.monotonic())
+    if remaining <= 0:
+        raise TimeoutError("Extraction deadline exhausted")
+    return remaining
+
+
+async def _dispatch_extract(provider, fetch_urls: List[str], format: Optional[str]) -> List[dict]:
+    """One total deadline; completed URLs reach the cache before further work.
+
+    Dispatch individual URLs with bounded concurrency so one stalled response cannot
+    discard another URL. Rescue retains its existing whole-batch-failure policy.
     """
     import inspect
+    from agent.deadline import run_bounded_async, run_bounded_sync
     from tools.web_result_cache import extract_cache_put
-    try:
-        if inspect.iscoroutinefunction(provider.extract):
-            results = await provider.extract(fetch_urls, format=format)
-        else:  # sync extract() runs in a thread so network I/O never blocks the loop
-            results = await asyncio.to_thread(provider.extract, fetch_urls, format=format)
-    except Exception as exc:  # noqa: BLE001 — candidate for rescue
-        if not _rescue_eligible(provider):
-            raise
-        failed = [_result_entry(u, str(exc)) for u in fetch_urls]
-        return await asyncio.to_thread(_rescue_extract, provider.name, fetch_urls, failed)
-    if results and all(r.get("error") for r in results) and _rescue_eligible(provider):
-        return await asyncio.to_thread(_rescue_extract, provider.name, fetch_urls, results)
+    from tools.web_tools import _load_web_config
 
-    # Cache each successful fetch's full clean text (best-effort; oversized skipped).
-    for url, fetched in zip(fetch_urls, results):
-        _content = fetched.get("raw_content", "") or fetched.get("content", "")
-        if _content and not fetched.get("error"):
-            extract_cache_put(url, _content, fetched.get("title", ""), format=format, provider=provider.name)
-    return results
+    try:
+        configured = float(_load_web_config().get("extract_timeout", 120.0))
+    except (ValueError, TypeError):
+        configured = 120.0
+    timeout = min(configured, 120.0) if configured > 0 else 120.0
+    parent = _extract_deadline.get()
+    deadline = min(parent, time.monotonic() + extract_remaining_seconds(timeout)) if parent else time.monotonic() + extract_remaining_seconds(timeout)
+    token = _extract_deadline.set(deadline)
+    results = [{**_result_entry(url, "Extraction deadline exhausted"), "error_code": "extract_timeout"} for url in fetch_urls]
+    slots = asyncio.Semaphore(4)
+
+    async def extract_one(index, url):
+        async with slots:
+            try:
+                remaining = extract_remaining_seconds()
+                if inspect.iscoroutinefunction(provider.extract):
+                    outcome = await run_bounded_async(provider.extract([url], format=format), remaining, label="web_extract.provider")
+                else:
+                    # Native daemon worker avoids waiting for a wedged sync SDK at loop shutdown.
+                    outcome = await asyncio.to_thread(run_bounded_sync, lambda: provider.extract([url], format=format), remaining, label="web_extract.provider")
+                if outcome.timed_out:
+                    return
+                fetched = outcome.value[0] if outcome.value else _result_entry(url, _NO_RESULT_ERROR)
+                extract_remaining_seconds()  # Do not persist a late result after cancellation/deadline.
+                results[index] = fetched
+                content = fetched.get("raw_content") or fetched.get("content")
+                if content and not fetched.get("error"):
+                    extract_cache_put(url, content, fetched.get("title", ""), format=format, provider=provider.name)
+            except Exception as exc:
+                results[index] = {**_result_entry(url, str(exc)), "error_code": "extract_provider_error"}
+
+    try:
+        await run_bounded_async(asyncio.gather(*(extract_one(i, url) for i, url in enumerate(fetch_urls))),
+                                extract_remaining_seconds(), label="web_extract.batch")
+        if results and all(r.get("error") for r in results) and time.monotonic() < deadline and _rescue_eligible(provider):
+            # Same deadline, including recovery. Never cache rescue as the configured provider.
+            for index, url in enumerate(fetch_urls):
+                if time.monotonic() >= deadline:
+                    break
+                rescued = await asyncio.to_thread(run_bounded_sync,
+                    lambda url=url, failed=results[index]: _rescue_extract(provider.name, [url], [failed]), extract_remaining_seconds(), label="web_extract.rescue")
+                if rescued.timed_out:
+                    break
+                if rescued.value:
+                    results[index] = rescued.value[0]
+        return results
+    finally:
+        _extract_deadline.reset(token)
 
 
 async def _extract_safe_urls(provider, safe_urls: List[str], format: Optional[str]) -> List[dict]:
