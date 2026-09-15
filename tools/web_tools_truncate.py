@@ -160,6 +160,7 @@ def _trim_results(results: List[dict]) -> List[dict]:
         {
             "url": r.get("url", ""), "title": r.get("title", ""), "content": r.get("content", ""),
             "error": r.get("error"),
+            **({"error_code": r["error_code"]} if r.get("error_code") else {}),
             **({"blocked_by_policy": r["blocked_by_policy"]} if "blocked_by_policy" in r else {}),
         }
         for r in results

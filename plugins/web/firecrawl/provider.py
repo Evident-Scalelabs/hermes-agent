@@ -109,7 +109,8 @@ class _KeylessFirecrawlClient:
         self.api_url = api_url.rstrip("/")
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        response = httpx.post(f"{self.api_url}{path}", json=payload, headers={"Content-Type": "application/json"}, timeout=60.0)
+        from tools.web_tools_extract import extract_remaining_seconds
+        response = httpx.post(f"{self.api_url}{path}", json=payload, headers={"Content-Type": "application/json"}, timeout=extract_remaining_seconds(60.0))
         response.raise_for_status()
         return response.json()
 
@@ -181,7 +182,7 @@ def _get_firecrawl_client() -> Any:
     cached = getattr(wt, "_firecrawl_client", None)
     if cached is not None and getattr(wt, "_firecrawl_client_config", None) == client_config:
         return cached
-    wt._firecrawl_client = _KeylessFirecrawlClient(api_url=kwargs["api_url"]) if client_mode == "keyless" else Firecrawl(**kwargs)
+    wt._firecrawl_client = _KeylessFirecrawlClient(api_url=kwargs["api_url"]) if client_mode == "keyless" else Firecrawl(**kwargs, timeout=60.0, max_retries=0)
     wt._firecrawl_client_config = client_config
     return wt._firecrawl_client
 
@@ -248,7 +249,13 @@ async def _scrape_one(url: str, formats: List[str], format: Optional[str]) -> Di
     try:
         logger.info("Firecrawl scraping: %s", url)
         try:
-            scrape_result = await asyncio.wait_for(asyncio.to_thread(_get_firecrawl_client().scrape, url=url, formats=formats), timeout=60)
+            from agent.deadline import run_bounded_sync
+            from tools.web_tools_extract import extract_remaining_seconds
+            remaining = extract_remaining_seconds(60.0)
+            bounded = await asyncio.to_thread(run_bounded_sync, lambda: _get_firecrawl_client().scrape(url=url, formats=formats), remaining, label="firecrawl.scrape")
+            if bounded.timed_out:
+                raise asyncio.TimeoutError
+            scrape_result = bounded.value
         except asyncio.TimeoutError:
             logger.warning("Firecrawl scrape timed out for %s", url)
             return _error_entry(url, _SCRAPE_TIMEOUT_MSG)

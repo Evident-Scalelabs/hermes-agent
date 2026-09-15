@@ -194,14 +194,14 @@ class TestExtractRescue:
              "raw_content": "y" * 50, "metadata": {"sourceURL": "https://b"}},
         ]
         with patch.object(
-            keyless_mcp, "extract_with_failover", return_value=good
+            keyless_mcp, "extract_with_failover", side_effect=lambda _name, urls: [r for r in good if r["url"] in urls]
         ) as ring:
             results = await self._dispatch(
                 monkeypatch, _KeyedBoomProvider(), ["https://a", "https://b"]
             )
         assert all(not r.get("error") for r in results)
         assert results[0]["content"].startswith("x")
-        ring.assert_called_once()
+        assert ring.call_count == 2
 
     def test_rescue_extract_annotates_results(self, monkeypatch):
         good = [
@@ -220,11 +220,9 @@ class TestExtractRescue:
     async def test_partial_failure_not_rescued(self, monkeypatch):
         class _Partial(_KeyedBoomProvider):
             def extract(self, urls, **kwargs):
-                return [
-                    {"url": urls[0], "title": "A", "content": "fine",
-                     "raw_content": "fine", "metadata": {}},
-                    {"url": urls[1], "title": "", "content": "", "error": "404"},
-                ]
+                return [{"url": url, "title": "A", "content": "fine", "error": None}
+                        if url == "https://a" else {"url": url, "content": "", "error": "404"}
+                        for url in urls]
 
         with patch.object(keyless_mcp, "extract_with_failover") as ring:
             results = await self._dispatch(
@@ -246,3 +244,47 @@ class TestExtractRescue:
                 monkeypatch, _KeyedBoomProvider(), ["https://a", "https://b"]
             )
         assert all("HTTP 500" in r.get("error", "") for r in results)
+
+
+@pytest.mark.asyncio
+async def test_extract_deadline_retains_completed_urls(monkeypatch):
+    import asyncio
+    import time
+    from tools.web_result_cache import extract_cache_get
+    from tools.web_tools_extract import _dispatch_extract
+
+    class Mixed(_KeyedBoomProvider):
+        async def extract(self, urls, **kwargs):
+            if urls[0].endswith("/slow"):
+                await asyncio.sleep(10)
+            return [{"url": urls[0], "content": "retained evidence " * 20, "title": "Complete"}]
+
+    monkeypatch.setattr(web_tools, "_load_web_config", lambda: {"extract_timeout": 0.08})
+    start = time.monotonic()
+    results = await TestExtractRescue()._dispatch(monkeypatch, Mixed(), ["https://example.com/good", "https://example.com/slow"])
+    assert time.monotonic() - start < 0.3
+    assert results[0]["content"].startswith("retained evidence")
+    assert results[1]["error_code"] == "extract_timeout"
+    assert extract_cache_get("https://example.com/good", format=None, provider="keenable") is not None
+
+
+@pytest.mark.asyncio
+async def test_extract_rescue_shares_remaining_deadline(monkeypatch):
+    import time
+    from tools.web_tools_extract import _dispatch_extract
+
+    class SlowFailure(_KeyedBoomProvider):
+        def extract(self, urls, **kwargs):
+            time.sleep(0.04)
+            return super().extract(urls, **kwargs)
+
+    def stalled_rescue(*args):
+        time.sleep(0.3)
+        return []
+
+    monkeypatch.setattr(web_tools, "_load_web_config", lambda: {"extract_timeout": 0.08})
+    monkeypatch.setattr(keyless_mcp, "extract_with_failover", stalled_rescue)
+    start = time.monotonic()
+    results = await TestExtractRescue()._dispatch(monkeypatch, SlowFailure(), ["https://example.com/fail"])
+    assert time.monotonic() - start < 0.15
+    assert "HTTP 500" in results[0]["error"]
