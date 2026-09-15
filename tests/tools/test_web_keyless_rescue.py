@@ -288,3 +288,16 @@ async def test_extract_rescue_shares_remaining_deadline(monkeypatch):
     results = await TestExtractRescue()._dispatch(monkeypatch, SlowFailure(), ["https://example.com/fail"])
     assert time.monotonic() - start < 0.15
     assert "HTTP 500" in results[0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_extract_http_budget_respects_bounded_caller():
+    import asyncio
+    from agent.deadline import run_bounded_async, run_bounded_sync
+    from tools.web_tools_extract import extract_remaining_seconds
+    async def operation():
+        await asyncio.sleep(0.02)
+        return await asyncio.to_thread(run_bounded_sync, extract_remaining_seconds, 120)
+    outcome = await run_bounded_async(operation(), 0.1)
+    assert not outcome.timed_out
+    assert 0 < outcome.value.value < 0.09

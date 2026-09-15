@@ -47,6 +47,8 @@ class TestRecordAuxiliaryUsage:
             billing_provider="gemini", input_tokens=500, output_tokens=50,
         )
         rows = _usage_rows(db, "s1")
+        assert db.get_session_model_usage("s1") == [{"model": "gemini-3-flash", "task": "vision", "api_call_count": 1, "input_tokens": 500, "output_tokens": 50}]
+        assert db.get_session_model_usage("other-session") == []
         assert len(rows) == 1
         r = rows[0]
         assert r["task"] == "vision"

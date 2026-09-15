@@ -384,6 +384,13 @@ class SessionUsageMixin:
         self._insert_session_row(session_id, "unknown")
         self._execute_write(lambda conn: self._record_model_usage(conn, session_id, task=task, **usage))
 
+    def get_session_model_usage(self, session_id: str) -> List[Dict[str, Any]]:
+        """Read retained model/task accounting without mixing auxiliary and main calls."""
+        return [dict(row) for row in self._read_all(
+            "SELECT model, task, api_call_count, input_tokens, output_tokens FROM session_model_usage WHERE session_id = ? ORDER BY task, model",
+            (session_id,),
+        )]
+
     def usage_totals(self, *, min_message_count: int = 1, include_archived: bool = False) -> Dict[str, float]:
         """Tokens and spend across the whole store (one scan), so the sidebar total does not
         shrink with paging. Spend prefers the billed figure over the estimate."""

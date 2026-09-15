@@ -139,6 +139,10 @@ _extract_deadline: ContextVar[Optional[float]] = ContextVar("web_extract_deadlin
 
 def extract_remaining_seconds(limit: float = 120.0) -> float:
     """Share the extraction deadline with provider HTTP calls and keyless rescue."""
+    from agent.deadline import remaining_deadline_seconds
+    caller_remaining = remaining_deadline_seconds()
+    if caller_remaining is not None:
+        limit = min(limit, caller_remaining)
     deadline = _extract_deadline.get()
     remaining = limit if deadline is None else min(limit, deadline - time.monotonic())
     if remaining <= 0:
@@ -163,7 +167,7 @@ async def _dispatch_extract(provider, fetch_urls: List[str], format: Optional[st
         configured = 120.0
     timeout = min(configured, 120.0) if configured > 0 else 120.0
     parent = _extract_deadline.get()
-    deadline = min(parent, time.monotonic() + timeout) if parent else time.monotonic() + timeout
+    deadline = min(parent, time.monotonic() + extract_remaining_seconds(timeout)) if parent else time.monotonic() + extract_remaining_seconds(timeout)
     token = _extract_deadline.set(deadline)
     results = [{**_result_entry(url, "Extraction deadline exhausted"), "error_code": "extract_timeout"} for url in fetch_urls]
     slots = asyncio.Semaphore(4)
