@@ -12508,6 +12508,7 @@ async function runPoolBackendStart(profile, entry, opts: { forceLocal?: boolean;
     if (isBackgroundSlotWaitTimeout(error)) {
       backgroundSlotRetryBackoff.recordFailure(poolKey)
     }
+
     throw error
   } finally {
     localBackendLifecycle.signal.removeEventListener('abort', cancelRequest)
