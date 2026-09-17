@@ -39,7 +39,7 @@ import {
   setYoloActive
 } from '@/store/session'
 import type { SessionProfileRoute } from '@/store/session-request-router'
-import { sessionTileOwnerRoute } from '@/store/session-states'
+import { runtimeSessionOwner, sessionTileOwnerRoute } from '@/store/session-states'
 
 // Re-exported for the many session-actions/tile call sites that already import
 // it from here; the canonical definition lives in @/store/session.
@@ -157,6 +157,7 @@ const _chatMessageFieldsExhaustive: {
 
 const COMPARED_FIELDS = [
   'asyncResult',
+  'asyncResultKind',
   'id',
   'role',
   'pending',
@@ -1624,7 +1625,8 @@ export async function resolveSessionOwner(storedSessionId: null | string): Promi
     routingSessionId: storedSessionId,
     tileOwnerRoute: sessionTileOwnerRoute,
     sessionOwnerHint: getSessionOwnerHint,
-    sessionRowOwner: id => knownSessionOwner(ownerLookupSessionRows(), id)
+    sessionRowOwner: id => knownSessionOwner(ownerLookupSessionRows(), id),
+    eventOwner: runtimeSessionOwner
   })
 
   if (owner) {

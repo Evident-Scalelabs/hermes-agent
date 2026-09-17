@@ -114,7 +114,10 @@ class _KeylessFirecrawlClient:
         return response.json()
 
     search = lambda self, *, query, limit=5: self._post("/v2/search", {"query": query, "limit": limit})  # noqa: E731
-    scrape = lambda self, *, url, formats: self._post("/v2/scrape", {"url": url, "formats": formats})  # noqa: E731
+    def scrape(self, *, url, formats, **options):
+        names = {"only_main_content": "onlyMainContent", "max_age": "maxAge"}
+        return self._post("/v2/scrape", {"url": url, "formats": formats,
+            **{names.get(key, key): value for key, value in options.items()}})
 
 
 def _get_firecrawl_gateway_url() -> str:
@@ -248,7 +251,9 @@ async def _scrape_one(url: str, formats: List[str], format: Optional[str]) -> Di
     try:
         logger.info("Firecrawl scraping: %s", url)
         try:
-            scrape_result = await asyncio.wait_for(asyncio.to_thread(_get_firecrawl_client().scrape, url=url, formats=formats), timeout=60)
+            options = _wt()._load_web_config().get("firecrawl", {})
+            options = {key: options[key] for key in ("only_main_content", "max_age") if key in options} if isinstance(options, dict) else {}
+            scrape_result = await asyncio.wait_for(asyncio.to_thread(_get_firecrawl_client().scrape, url=url, formats=formats, **options), timeout=60)
         except asyncio.TimeoutError:
             logger.warning("Firecrawl scrape timed out for %s", url)
             return _error_entry(url, _SCRAPE_TIMEOUT_MSG)
@@ -266,7 +271,7 @@ async def _scrape_one(url: str, formats: List[str], format: Optional[str]) -> Di
             return _error_entry(final_url, final_blocked["message"], title=title, raw=True, blocked=final_blocked)
         markdown, html = payload.get("markdown"), payload.get("html")
         content = markdown if format == "markdown" or (format is None and markdown) else html or markdown or ""
-        return {"url": final_url, "title": title, "content": content, "raw_content": content, "metadata": metadata}
+        return {"url": final_url, "title": title, "content": content, "raw_content": content, "metadata": metadata, "html": html or "", "provider": "firecrawl", "requestedUrl": url}
     except Exception as scrape_err:  # noqa: BLE001
         logger.debug("Firecrawl scrape failed for %s: %s", url, scrape_err)
         return _error_entry(url, str(scrape_err), raw=True)

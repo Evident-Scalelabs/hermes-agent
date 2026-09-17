@@ -377,6 +377,45 @@ async function advanceBackoff() {
   })
 }
 
+describe('default-route profile adoption', () => {
+  it.each([null, 'coder-remote'])(
+    'dials the saved startup route before an ambient sender can replace it (%s)',
+    async connectionId => {
+      const base = fakeDesktop()
+      const route = { connectionId, profile: 'coder' }
+      const desktop = {
+        ...base,
+        getConnectionFor: vi.fn(async () => ({ ...coderConn, registryScoped: true })),
+        profile: { ...base.profile, getDefault: vi.fn(async () => route) }
+      }
+      ;(window as { hermesDesktop?: unknown }).hermesDesktop = desktop
+      render(<Harness />)
+      await flushAsync()
+
+      if (connectionId) {
+        expect(desktop.getConnectionFor).toHaveBeenCalledWith(route)
+      } else {
+        expect(desktop.getConnection).toHaveBeenCalledWith('coder')
+        expect(desktop.getConnectionFor).not.toHaveBeenCalled()
+      }
+      expect($connection.get()?.profile).toBe('coder')
+      expect($desktopBoot.get().running).toBe(false)
+    }
+  )
+
+  it('adopts the resolved backend profile rather than the old last-used preference', async () => {
+    const desktop = fakeDesktop()
+    desktop.getConnection.mockResolvedValue({ ...primaryConn, profile: 'research' })
+    desktop.profile.get.mockResolvedValue({ profile: 'old-last-used' })
+    ;(window as { hermesDesktop?: unknown }).hermesDesktop = desktop
+    render(<Harness />)
+    await flushAsync()
+    expect($connection.get()?.profile).toBe('research')
+    expect($activeGatewayProfile.get()).toBe('research')
+    expect($desktopBoot.get().running).toBe(false)
+  })
+})
+
 describe('primary failure foreground isolation', () => {
   it('ignores a boot snapshot superseded by a successful connection', async () => {
     const snapshot = deferred<Awaited<ReturnType<ReturnType<typeof fakeDesktop>['getBootProgress']>>>()
@@ -2207,5 +2246,42 @@ describe('useGatewayBoot remote reconnect loop (real hook, fake socket)', () => 
       await vi.advanceTimersByTimeAsync(20_000)
     })
     expect($gatewayState.get()).toBe('open')
+  })
+})
+
+describe('window-state IPC before the first connection publishes (#108641)', () => {
+  it('a fullscreen toggle that lands while getConnection is still pending reaches the published connection', async () => {
+    // Main snapshots chrome state into the descriptor at mint time; a toggle
+    // that fires after the mint but before the renderer publishes it is newer
+    // than the snapshot and used to be dropped because $connection was null.
+    let windowState: ((payload: Record<string, unknown>) => void) | null = null
+    const pending = deferred<Record<string, unknown>>()
+
+    const desktop = {
+      ...fakeDesktop(),
+      getConnection: vi.fn(() => pending.promise),
+      onWindowStateChanged: vi.fn((callback: (payload: Record<string, unknown>) => void) => {
+        windowState = callback
+
+        return () => undefined
+      })
+    }
+
+    ;(window as { hermesDesktop?: unknown }).hermesDesktop = desktop
+
+    render(<Harness />)
+    await flushAsync()
+    expect($connection.get()).toBeNull()
+
+    act(() => windowState?.({ isFullscreen: true, nativeOverlayWidth: 0, windowButtonPosition: null }))
+    expect($connection.get()).toBeNull()
+
+    await act(async () => {
+      pending.resolve({ ...primaryConn, isFullscreen: false, windowButtonPosition: { x: 12, y: 16 } })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect($connection.get()?.isFullscreen).toBe(true)
+    expect($connection.get()?.windowButtonPosition).toBeNull()
   })
 })

@@ -193,6 +193,8 @@ def _save_index(index: dict) -> None:
 def _url_digest(url: str, format: Optional[str], provider: str = "") -> str:
     # format AND provider are part of the key: html != markdown, and one backend's rendering is not another's.
     raw = f"{url}\n{format or 'markdown'}\n{provider or ''}"
+    if provider == "firecrawl":
+        raw += json.dumps(_web_config().get("firecrawl", {}), sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -260,7 +262,7 @@ def _cacheable(url: str) -> bool:
 
 def extract_cache_get(url: str, format: Optional[str] = None, provider: str = "") -> Optional[dict]:
     """Return {'url','title','content'} for a fresh cached page, else None."""
-    if not _cacheable(url):
+    if not _cacheable(url) or provider == "firecrawl" and _web_config().get("firecrawl", {}).get("max_age") == 0:
         return None
     with _index_lock:
         entry = _load_index().get(_url_digest(url, format, provider))

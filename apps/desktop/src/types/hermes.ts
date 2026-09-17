@@ -985,6 +985,9 @@ export interface ProfileCreatePayload {
 export interface ProfileInfo {
   /** Presentation-only label override (profile.yaml display_name). */
   display_name?: string
+  /** Bot Mode title (profile.yaml ui_meta['hermes-bots'].title) — the name the
+   *  Bots roster shows for this profile. Presentation-only. */
+  bot_title?: string
   has_env: boolean
   is_default: boolean
   model: null | string
@@ -1636,7 +1639,15 @@ export interface McpCatalogEntry {
   /** Composer-suggestion triggers (present when the manifest declares a
    *  `suggest` block; null/absent on entries without one and on older
    *  backends that predate the field). */
-  suggest?: { keywords: string[]; hosts: string[] } | null
+  suggest?: {
+    keywords: string[]
+    hosts: string[]
+    applications?: string[]
+    examples?: string[]
+    requires_app?: boolean
+  } | null
+  /** Observed on this entry's backend host, not proof that its MCP is usable. */
+  detected_apps?: string[]
   needs_install: boolean
   installed: boolean
   enabled: boolean
@@ -1645,6 +1656,7 @@ export interface McpCatalogEntry {
 export interface McpCatalogResponse {
   entries: McpCatalogEntry[]
   diagnostics: { name: string; kind: string; message: string }[]
+  discovery?: { scope: 'backend'; status: 'ok' | 'unavailable'; platform: string }
 }
 
 /** `GET /api/memory` — active provider + built-in memory file sizes. */
