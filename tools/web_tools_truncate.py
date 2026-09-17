@@ -7,6 +7,7 @@ origin (tools.web_tools) logger.
 """
 
 import logging
+from pathlib import Path
 import re
 from typing import Any, List, Optional
 
@@ -144,6 +145,14 @@ def _truncate_results(results: List[dict], char_limit: int, debug_call_data: dic
         clean = convert_base64_images_to_links(raw_content)
         model_text, truncated = _truncate_with_footer(clean, url, char_limit)
         result["content"] = model_text
+        result["truncated"] = truncated
+        if isinstance(result.get("html"), str) and result["html"]:
+            import hashlib
+            html_path = _store_full_text(url + "#extracted-html", result["html"])
+            if html_path:
+                result["htmlArtifact"] = {"path": html_path, "sha256": "sha256:" + hashlib.sha256(Path(html_path).read_bytes()).hexdigest()}
+            result["html"], html_truncated = _truncate_with_footer(result["html"], url + "#extracted-html", char_limit)
+            result["htmlTruncated"] = html_truncated
         if truncated:
             debug_call_data["pages_truncated"] += 1
             debug_call_data["truncation_metrics"].append(
@@ -160,6 +169,8 @@ def _trim_results(results: List[dict]) -> List[dict]:
         {
             "url": r.get("url", ""), "title": r.get("title", ""), "content": r.get("content", ""),
             "error": r.get("error"),
+            **{key: r[key] for key in ("provider", "requestedUrl", "truncated", "html", "htmlTruncated", "htmlArtifact") if key in r},
+            **({"metadata": {key: r["metadata"][key] for key in ("title", "sourceURL", "url", "statusCode", "status_code", "capturedAt", "scrapedAt", "cachedAt", "description") if key in r["metadata"]}} if isinstance(r.get("metadata"), dict) else {}),
             **({"blocked_by_policy": r["blocked_by_policy"]} if "blocked_by_policy" in r else {}),
         }
         for r in results
