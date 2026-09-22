@@ -164,7 +164,8 @@ def _cleanup_inactive_browser_sessions():
         _bt.logger.info("Cleaning up inactive session for task: %s (inactive for %ss)", task_id, elapsed)
         try:
             with _session_owner_scope(task_id):
-                cleanup_browser(task_id)
+                if cleanup_browser(task_id) is False:
+                    raise RuntimeError("Browser cleanup returned failure; ownership retained for retry")
             _forget_session_tracking(task_id)
         except Exception as e:
             with _bt._cleanup_lock:
@@ -175,13 +176,15 @@ def _cleanup_inactive_browser_sessions():
                 continue
             _bt.logger.error("Browser cleanup failed %d times for inactive session %s; "
                          "force-reaping: %s", failures, task_id, e)
+            reaped = False
             try:
                 with _session_owner_scope(task_id):
-                    _force_reap_browser_session(task_id)
+                    reaped = _force_reap_browser_session(task_id) is not False
             except Exception as reap_exc:
                 _bt.logger.error("Force-reap of browser session %s failed: %s", task_id, reap_exc)
             finally:
-                _forget_session_tracking(task_id, activity=False)
+                if reaped:
+                    _forget_session_tracking(task_id, activity=False)
 
 
 def _write_owner_pid(socket_dir: str, session_name: str) -> None:
@@ -305,18 +308,41 @@ def _terminate_verified_daemon(daemon_pid: int, session_name: str, log) -> bool:
     return True
 
 
+def _close_orphan_tab(socket_dir: str, session_name: str) -> bool:
+    """Close the dead owner's persisted native tab binding without recreating Hermes state."""
+    stdout = os.path.join(socket_dir, "_stdout_orphan-close")
+    stderr = os.path.join(socket_dir, "_stderr_orphan-close")
+    try:
+        binary = _install._find_agent_browser(validate=False)
+        argv = _session._agent_browser_argv(binary) + ["--session", session_name, "--pin-tab", "--json", "tab", "close"]
+        proc = _session._popen_agent_browser(argv, _session._agent_browser_command_env(socket_dir), socket_dir, "orphan-close")
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            return False
+        out, err = _session._read_command_output_files(stdout, stderr)
+        result = _session._interpret_browser_command_output("tab", out, err, proc.returncode)
+        return bool(result.get("success") or result.get("code") == "tab_gone")
+    except Exception:
+        return False
+    finally:
+        _session._unlink_command_output_files(stdout, stderr)
+
+
 def _reap_socket_dir(socket_dir: str, session_name: str, tracked_names: set) -> bool:
     """Reap one ``agent-browser-<session>`` dir if orphaned; True when a daemon was killed.
 
-    A live ``owner_pid`` means another hermes process owns it — leave it UNLESS untracked
-    here and idle past ``BROWSER_ORPHAN_GRACE_SECONDS`` (owner-alive alone made leaked
-    daemons immortal); no owner_pid (legacy) falls back to this process's tracking. A
+    A different live ``owner_pid`` is never reaped. Our own untracked sessions may be
+    reaped after ``BROWSER_ORPHAN_GRACE_SECONDS``; no owner_pid (legacy) falls back to
+    this process's tracking. A
     pidless dir is only stale after the grace period (deleting it immediately races the
     creator's first stdout open). The PID is identity-verified before any tree-kill.
     """
     owner_pid, owner_alive = _owner_pid_alive(socket_dir, session_name)
     if owner_alive is True:
-        if session_name in tracked_names:
+        if owner_pid != os.getpid() or session_name in tracked_names:
             return False
         idle_s = _socket_dir_idle_seconds(socket_dir)
         if idle_s is None or idle_s < _bt.BROWSER_ORPHAN_GRACE_SECONDS:
@@ -346,6 +372,10 @@ def _reap_socket_dir(socket_dir: str, session_name: str, tracked_names: set) -> 
     if not _verify_reapable_browser_daemon(daemon_pid, socket_dir, session_name):
         return False  # leave process and dir for a later sweep once the imposter PID is gone
 
+    if owner_alive is False and not _close_orphan_tab(socket_dir, session_name):
+        _bt.logger.warning("Orphan tab cleanup incomplete for %s; retaining daemon and ownership files for retry", session_name)
+        return False
+
     # Tree-kill so Chromium children (renderer, GPU, ...) go too.
     reaped = False
     try:
@@ -355,7 +385,8 @@ def _reap_socket_dir(socket_dir: str, session_name: str, tracked_names: set) -> 
         reaped = True
     except (ProcessLookupError, PermissionError, OSError):
         pass
-    shutil.rmtree(socket_dir, ignore_errors=True)
+    if reaped:
+        shutil.rmtree(socket_dir, ignore_errors=True)
     return reaped
 
 
@@ -375,7 +406,7 @@ def _reap_orphaned_browser_sessions():
     tmpdir = _bt._socket_safe_tmpdir()
     socket_dirs = []
     # The shared real-profile attach daemon is named, not ``<prefix>_<hex>``; list it explicitly.
-    for prefix in ("agent-browser-h_*", "agent-browser-cdp_*", "agent-browser-hermes_*",
+    for prefix in ("agent-browser-h_*", "agent-browser-cdp_*", "agent-browser-rp_*", "agent-browser-hermes_*",
                    f"agent-browser-{_bt._REAL_PROFILE_SESSION}"):
         socket_dirs += glob.glob(os.path.join(tmpdir, prefix))
     if not socket_dirs:
@@ -572,7 +603,7 @@ def _drop_last_active_binding(task_id: str) -> None:
         _bt._last_active_session_key.pop(bare_task_id, None)
 
 
-def cleanup_browser(task_id: Optional[str] = None) -> None:
+def cleanup_browser(task_id: Optional[str] = None) -> bool:
     """Clean up browser session(s) for a task: a bare task id reaps BOTH the primary
     session and any hybrid local sidecar; a ``::local`` key reaps only that one."""
     if task_id is None:
@@ -583,9 +614,13 @@ def cleanup_browser(task_id: Optional[str] = None) -> None:
     with _bt._cleanup_lock:
         if not _bt._is_local_sidecar_key(task_id) and sidecar_key in _bt._active_sessions:
             session_keys.append(sidecar_key)
+    cleaned = True
     for session_key in session_keys:
-        _cleanup_single_browser_session(session_key)
-    _drop_last_active_binding(task_id)
+        if _cleanup_single_browser_session(session_key) is False:
+            cleaned = False
+    if cleaned:
+        _drop_last_active_binding(task_id)
+    return cleaned
 
 
 def _kill_verified_daemon(socket_dir: str, session_name: str) -> bool:
@@ -632,11 +667,15 @@ def _release_session_resources(task_id: str, session_info: Dict[str, Any]) -> No
     if session_name:
         socket_dir = os.path.join(_bt._socket_safe_tmpdir(), f"agent-browser-{session_name}")
         if os.path.exists(socket_dir):
-            _kill_verified_daemon(socket_dir, session_name)
+            killed = _kill_verified_daemon(socket_dir, session_name)
+            pid = _read_pid_file(os.path.join(socket_dir, f"{session_name}.pid"))
+            if not killed and pid is not None and _pid_exists(pid):
+                _bt.logger.warning("Browser daemon cleanup incomplete for %s; keeping ownership files for recovery", session_name)
+                return
             shutil.rmtree(socket_dir, ignore_errors=True)
 
 
-def _force_reap_browser_session(task_id: str) -> None:
+def _force_reap_browser_session(task_id: str) -> bool:
     """Janitor last resort: skip the failing ``close`` round-trips, release resources directly.
 
     Janitor last resort after repeated cleanup failures (#100738).
@@ -644,14 +683,22 @@ def _force_reap_browser_session(task_id: str) -> None:
     _cdp._stop_cdp_supervisor(task_id)
     with _bt._cleanup_lock:
         session_info = _bt._active_sessions.get(task_id)
+    if session_info and session_info.get("_cdp_target_id") and not session_info.get("bb_session_id"):
+        name = session_info["session_name"]
+        socket_dir = os.path.join(_bt._socket_safe_tmpdir(), f"agent-browser-{name}")
+        if not _close_orphan_tab(socket_dir, name):
+            _bt.logger.warning("Task tab cleanup incomplete for %s; retaining session ownership for retry", task_id)
+            return False
+    with _bt._cleanup_lock:
         _bt._session_last_activity.pop(task_id, None)
         _bt._recording_sessions.discard(task_id)
     if session_info:
         _release_session_resources(task_id, session_info)
     _drop_last_active_binding(task_id)
+    return True
 
 
-def _cleanup_single_browser_session(task_id: str) -> None:
+def _cleanup_single_browser_session(task_id: str) -> Optional[bool]:
     """Reap a single browser session by its exact session key."""
     _cdp._stop_cdp_supervisor(task_id)  # close our WebSocket BEFORE the backend tears down the endpoint
 
@@ -690,10 +737,20 @@ def _cleanup_single_browser_session(task_id: str) -> None:
         _bt.logger.debug("Skipping agent-browser close for expired session %s", task_id)
     else:
         try:
-            _session._run_browser_command(task_id, "close", [], timeout=10)
+            if session_info.get("_cdp_target_id"):
+                result = _session._run_browser_command(task_id, "tab", ["close", session_info["_cdp_target_id"]], timeout=10)
+                if not result.get("success") and result.get("code") != "tab_gone":
+                    _bt.logger.warning("agent-browser tab close failed for task %s; ownership retained: %s", task_id, result.get("error"))
+                    return False
+                session_info.pop("_cdp_target_id", None)
+            result = _session._run_browser_command(task_id, "close", [], timeout=10)
+            if not result.get("success"):
+                _bt.logger.warning("agent-browser close failed for task %s; ownership retained: %s", task_id, result.get("error"))
+                return False
             _bt.logger.debug("agent-browser close command completed for task %s", task_id)
         except Exception as e:
             _bt.logger.warning("agent-browser close failed for task %s: %s", task_id, e)
+            return False
 
     _release_session_resources(task_id, session_info)
     _bt.logger.debug("Removed task %s from active sessions", task_id)

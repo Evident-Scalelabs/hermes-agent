@@ -322,15 +322,11 @@ TOOL_CATEGORIES = {
         # first so a fresh install's Enter lands on the free local backend (index 0), never on the paid Nous row.
         # Lightpanda is local too (cloud_provider: local, browser.engine: lightpanda — Browser Use mode spawns
         # ``lightpanda serve``, built-in tools use ``agent-browser --engine lightpanda``; no Chromium).
-        # Camofox short-circuits the cloud dispatch via _is_camofox_mode().
         "providers": [
             _row("Local Browser", "★ recommended · free", "Headless Chromium, no API key needed", browser_provider="local",
                  browser_engine="auto", post_setup="agent_browser"),
             _row("Lightpanda", "free · local · no Chromium", "Zig headless browser spawned by Hermes, text-only (no screenshots)",
                  browser_provider="local", browser_engine="lightpanda", post_setup="lightpanda"),
-            _row("Camofox", "free · local", "Anti-detection browser (Firefox/Camoufox)",
-                 [_key("CAMOFOX_URL", "Camofox server URL", "https://github.com/jo-inc/camofox-browser", default="http://localhost:9377")],
-                 browser_provider="camofox", post_setup="camofox"),
         ],
     },
     "homeassistant": {

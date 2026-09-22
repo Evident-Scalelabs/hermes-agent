@@ -365,6 +365,7 @@ def _discard_timed_out_browser_session(task_id: str, session_info: Dict[str, Any
             replacement = dict(session_info)
             replacement["session_name"] = f"h_{uuid.uuid4().hex[:10]}"
             replacement.pop("_first_nav", None)
+            replacement.pop("_cdp_tab_initialized", None)
             _bt._active_sessions[task_id] = replacement
         else:
             _bt._active_sessions.pop(task_id, None)
@@ -570,9 +571,6 @@ def _browser_command_preflight() -> Dict[str, Any]:
         _bt.logger.warning("browser command blocked: %s", hint)
         return {"success": False, "error": hint}
 
-    from tools.interrupt import is_interrupted
-    if is_interrupted():
-        return {"success": False, "error": "Interrupted"}
     return {"browser_cmd": browser_cmd}
 
 
@@ -627,17 +625,17 @@ def _dispatch_browser_command(
     timeout: int, _engine_override: Optional[str],
 ) -> "tuple[str, Dict[str, Any]]":
     """Build the agent-browser argv for ``session_info`` and run it once → ``(engine, result)``."""
-    # Cleanup stops the supervisor before closing the backend; keep it stopped.
-    if command != "close" and session_info.get("cdp_url"):
+    # Cleanup stops the supervisor before closing the tab/backend; keep it stopped.
+    teardown = command == "close" or (command == "tab" and args[:1] == ["close"])
+    if not teardown and session_info.get("cdp_url"):
         _cdp._ensure_cdp_supervisor(task_id)
 
-    # Cloud/CDP: ``--cdp <ws_url>`` (NEVER with --session: agent-browser >=0.13
-    # would create a local browser and silently ignore --cdp). Local: ``--session <name>``.
+    # agent-browser 0.38.1 uses the same session name for tab binding and daemon PID files.
     # Engine injection keys off the resolved session backend, not global provider
     # state: hybrid routing can create a local sidecar while a cloud provider stays configured.
     engine = _engine_override or _cloud._get_browser_engine()
     if session_info.get("cdp_url"):
-        backend_args = ["--cdp", session_info["cdp_url"]]
+        backend_args = ["--session", session_info["session_name"], "--cdp", session_info["cdp_url"], "--pin-tab"]
     else:
         backend_args = ["--session", session_info["session_name"]]
         if _cloud._is_headed_mode():
@@ -650,6 +648,21 @@ def _dispatch_browser_command(
     cmd_parts = argv + backend_args + ["--json", spawn_command] + spawn_args
 
     try:
+        if session_info.get("cdp_url") and not teardown and not session_info.get("_cdp_tab_initialized"):
+            # Bind explicitly before enabling --pin-tab; pinning the initial attach creates an extra blank tab.
+            target_id = session_info.get("_cdp_target_id")
+            tab_args = [target_id] if target_id else ["new", "about:blank"]
+            initial = _spawn_and_collect(task_id, session_info,
+                                         argv + backend_args[:-1] + ["--json", "tab"] + tab_args,
+                                         "tab", engine, timeout)
+            if not initial.get("success"):
+                return engine, initial
+            target_id = initial.get("data", {}).get("targetId") or target_id
+            if not target_id:
+                return engine, {"success": False, "error": "agent-browser did not identify its task-owned CDP tab"}
+            session_info["_cdp_target_id"] = target_id
+            session_info["_cdp_tab_initialized"] = True
+            _cdp._ensure_cdp_supervisor(task_id)
         result = _unwrap_batch_result(
             _spawn_and_collect(task_id, session_info, cmd_parts, command, engine, timeout, stdin_payload), command)
     except Exception as e:
@@ -672,6 +685,12 @@ def _run_browser_command(
         timeout = _bt._safe_command_timeout()
     args = args or []
 
+    teardown = command == "close" or (command == "tab" and args[:1] == ["close"])
+    from tools.interrupt import is_interrupted
+    if is_interrupted() and not teardown:
+        return {"success": False, "error": "Interrupted"}
+    if teardown and task_id not in _bt._active_sessions:
+        return {"success": True, "data": {"closed": True}}
     preflight = _browser_command_preflight()
     if "browser_cmd" not in preflight:
         return preflight
@@ -679,7 +698,9 @@ def _run_browser_command(
 
     for attempt in range(2):
         try:
-            session_info = _get_session_info(task_id)
+            session_info = _bt._active_sessions.get(task_id) if teardown else _get_session_info(task_id)
+            if session_info is None:
+                return {"success": True, "data": {"closed": True}}
         except Exception as e:
             _bt.logger.warning("Failed to create browser session for task=%s: %s", task_id, e)
             return {"success": False, "error": f"Failed to create browser session: {str(e)}"}
@@ -720,7 +741,7 @@ def run_browser_command(
 ) -> Dict[str, Any]:
     """Public alias of ``_run_browser_command`` for Evident observation hooks.
 
-    Same task-scoped session as model ``browser_*`` tools. Pass ``--cdp`` or
-    ``--session``, never both, matching the pinned adapter.
+    Uses the last successful navigation's session, including a hybrid local sidecar.
+    Teardown callers should use ``cleanup_browser(task_id)`` to release all owned sessions.
     """
-    return _run_browser_command(task_id, command, args=args, timeout=timeout)
+    return _run_browser_command(_bt._last_session_key(task_id), command, args=args, timeout=timeout)

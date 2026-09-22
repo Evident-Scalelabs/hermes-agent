@@ -100,11 +100,12 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
     are sync, thread-safe bridges onto that loop; all CDP I/O lives on the loop."""
 
     def __init__(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
-                 dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S) -> None:
+                 dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, target_id: Optional[str] = None) -> None:
         if dialog_policy not in _VALID_POLICIES:
             raise ValueError(f"Invalid dialog_policy {dialog_policy!r}; must be one of {sorted(_VALID_POLICIES)}")
         self.task_id = task_id
         self.cdp_url = cdp_url
+        self.target_id = target_id
         self.dialog_policy = dialog_policy
         self.dialog_timeout_s = float(dialog_timeout_s)
 
@@ -289,7 +290,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
                 url = str(t.get("url") or "")
                 try:
                     # origin="" = any http(s) page (used to FIND the login tab before its origin is known)
-                    if t.get("type") == "page" and url.startswith(("http://", "https://")) \
+                    if t.get("type") == "page" and (self.target_id is None or t.get("targetId") == self.target_id) \
+                            and url.startswith(("http://", "https://")) \
                             and (not origin or normalize_origin(url) == origin):
                         candidates.append((t["targetId"], url))
                 except Exception:
@@ -432,7 +434,10 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
     async def _attach_initial_page(self) -> None:
         """Find (or create) a page target, attach flattened, enable domains, install dialog bridge."""
         targets = (await self._cdp("Target.getTargets")).get("result", {}).get("targetInfos", [])
-        page_target = next((t for t in targets if t.get("type") == "page"), None)
+        page_target = next((t for t in targets if t.get("type") == "page"
+                            and (self.target_id is None or t.get("targetId") == self.target_id)), None)
+        if page_target is None and self.target_id is not None:
+            raise RuntimeError("Task-owned browser tab is gone; refusing to attach to another task's tab")
         if page_target is None:
             page_target = (await self._cdp("Target.createTarget", {"url": "about:blank"}))["result"]
         attach = await self._cdp("Target.attachToTarget", {"targetId": page_target["targetId"], "flatten": True})
@@ -506,7 +511,8 @@ class _SupervisorRegistry:
             return self._by_task.pop(task_id, None)
 
     def get_or_start(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
-                     dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, start_timeout: float = 15.0) -> CDPSupervisor:
+                     dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, start_timeout: float = 15.0,
+                     target_id: Optional[str] = None) -> CDPSupervisor:
         """Idempotently ensure a supervisor runs for ``(task_id, cdp_url)``; one bound to a
         different ``cdp_url`` or unhealthy (dead thread / stopped loop) is stopped and replaced."""
         with self._lock:
@@ -514,19 +520,19 @@ class _SupervisorRegistry:
             if existing is not None:
                 thread, loop = existing._thread, existing._loop
                 healthy = thread is not None and thread.is_alive() and loop is not None and loop.is_running()
-                if existing.cdp_url == cdp_url and healthy:
+                if existing.cdp_url == cdp_url and existing.target_id == target_id and healthy:
                     return existing
                 self._by_task.pop(task_id, None)
         if existing is not None:
             existing.stop()
 
         supervisor = CDPSupervisor(task_id=task_id, cdp_url=cdp_url,
-                                   dialog_policy=dialog_policy, dialog_timeout_s=dialog_timeout_s)
+                                   dialog_policy=dialog_policy, dialog_timeout_s=dialog_timeout_s, target_id=target_id)
         supervisor.start(timeout=start_timeout)
         with self._lock:
             # Guard against a concurrent get_or_start from another thread.
             already = self._by_task.get(task_id)
-            if already is not None and already.cdp_url == cdp_url:
+            if already is not None and already.cdp_url == cdp_url and already.target_id == target_id:
                 supervisor.stop()
                 return already
             self._by_task[task_id] = supervisor

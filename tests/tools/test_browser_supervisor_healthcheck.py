@@ -45,6 +45,7 @@ def _make_fake_supervisor(cdp_url: str, *, thread_alive: bool, loop_running: boo
 
     fake = SimpleNamespace(
         cdp_url=cdp_url,
+        target_id=None,
         _thread=t,
         _loop=_FakeLoop(loop_running),
         stop=lambda: stop_calls.append(True),
@@ -68,9 +69,10 @@ def stub_cdp_supervisor(monkeypatch):
     created: list[SimpleNamespace] = []
 
     class _StubSupervisor:
-        def __init__(self, *, task_id, cdp_url, dialog_policy, dialog_timeout_s):
+        def __init__(self, *, task_id, cdp_url, dialog_policy, dialog_timeout_s, target_id=None):
             self.task_id = task_id
             self.cdp_url = cdp_url
+            self.target_id = target_id
             self.dialog_policy = dialog_policy
             self.dialog_timeout_s = dialog_timeout_s
             # Healthy by default — real thread, running "loop".
@@ -121,6 +123,7 @@ def test_missing_thread_and_loop_attrs_trigger_recreate(
     cdp_url = "http://h/4"
     broken = SimpleNamespace(
         cdp_url=cdp_url,
+        target_id=None,
         _thread=None,
         _loop=None,
         stop=lambda: None,

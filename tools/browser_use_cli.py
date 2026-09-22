@@ -46,6 +46,12 @@ def get_browser_backend() -> str:
 
 def retired_browser_backend_error() -> Optional[str]:
     """Actionable error when config still selects the retired controller or leaves it unset."""
+    browser_cfg = _read_browser_cfg()
+    from tools.tool_backend_helpers import normalize_browser_cloud_provider
+    from agent.secret_scope import get_secret
+    selected = normalize_browser_cloud_provider(browser_cfg.get("cloud_provider"))
+    if selected == "camofox" or ("cloud_provider" not in browser_cfg and get_secret("CAMOFOX_URL", "")):
+        return "Camofox controller is retired. Select local Chromium or an agent-browser CDP provider explicitly."
     backend = get_browser_backend()
     if backend in ("", _BACKEND_KEY):
         return (

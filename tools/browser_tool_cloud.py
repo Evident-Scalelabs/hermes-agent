@@ -126,8 +126,9 @@ def _resolve_cloud_provider_uncached() -> Optional[CloudBrowserProvider]:
         browser_cfg = read_raw_config().get("browser", {})
         if isinstance(browser_cfg, dict) and "cloud_provider" in browser_cfg:
             provider_key = normalize_browser_cloud_provider(browser_cfg.get("cloud_provider"))
-            if provider_key in ("local", "camofox"):
-                # Camofox runs through the built-in browser tools, not a cloud provider.
+            if provider_key == "camofox":
+                raise ValueError("Camofox controller is retired; select local Chromium or an agent-browser CDP provider explicitly")
+            if provider_key == "local":
                 _bt._cached_cloud_provider = None
                 _bt._cloud_provider_resolved = True
                 return None
