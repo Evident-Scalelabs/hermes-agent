@@ -442,100 +442,16 @@ class TestLocalSessionRealProfile:
         assert info["session_name"].startswith("h_")
 
 
-class TestBrowserExecLocalArg:
-    def _env(self):
-        return {}
+class TestBrowserExecRetired:
+    """browser_exec / real-profile BU_CDP helpers are retired with Browser Use CLI."""
 
-    def test_local_forces_real_profile_under_cloud_backend(self):
+    def test_browser_exec_helpers_removed(self):
         import tools.browser_use_cli as bu
-        env = self._env()
-        with patch.object(bu, "_real_profile_consented", return_value=True), \
-             patch("tools.browser_tool_cdp._get_cdp_override_raw", return_value=""), \
-             patch("tools.browser_tool_cloud._get_cloud_provider", return_value=Mock()), \
-             patch("tools.browser_tool_real_profile._real_profile_cdp",
-                   return_value=("http://127.0.0.1:9251", None)):
-            err = bu._resolve_real_profile_cdp(env, force_local=True)
-        assert err is None
-        assert env.get("BU_CDP_URL") == "http://127.0.0.1:9251"
-
-    def test_no_force_keeps_cloud_backend(self):
-        import tools.browser_use_cli as bu
-        env = self._env()
-        with patch.object(bu, "_real_profile_consented", return_value=True), \
-             patch("tools.browser_tool_cdp._get_cdp_override_raw", return_value=""), \
-             patch("tools.browser_tool_cloud._get_cloud_provider", return_value=Mock()):
-            err = bu._resolve_real_profile_cdp(env, force_local=False)
-        assert err is None
-        assert "BU_CDP_URL" not in env and "BU_CDP_WS" not in env
-
-    def test_local_backend_upgrades_without_force(self):
-        import tools.browser_use_cli as bu
-        env = self._env()
-        with patch.object(bu, "_real_profile_consented", return_value=True), \
-             patch.object(bu, "_read_browser_cfg", return_value={}), \
-             patch("tools.browser_tool_cdp._get_cdp_override_raw", return_value=""), \
-             patch("tools.browser_tool_cloud._get_cloud_provider", return_value=None), \
-             patch("tools.browser_tool_real_profile._real_profile_cdp",
-                   return_value=("http://127.0.0.1:9251", None)):
-            err = bu._resolve_real_profile_cdp(env, force_local=False)
-        assert err is None
-        assert env.get("BU_CDP_URL") == "http://127.0.0.1:9251"
-
-    def test_consent_off_is_inert(self):
-        import tools.browser_use_cli as bu
-        env = self._env()
-        with patch.object(bu, "_real_profile_consented", return_value=False):
-            err = bu._resolve_real_profile_cdp(env, force_local=True)
-        assert err is None and env == {}
-
-    def test_launch_failure_fails_closed(self):
-        import tools.browser_use_cli as bu
-        env = self._env()
-        with patch.object(bu, "_real_profile_consented", return_value=True), \
-             patch("tools.browser_tool_cdp._get_cdp_override_raw", return_value=""), \
-             patch("tools.browser_tool_real_profile._real_profile_cdp",
-                   return_value=(None, "chrome exited")):
-            err = bu._resolve_real_profile_cdp(env, force_local=True)
-        assert err == "chrome exited"
-        assert "BU_CDP_URL" not in env
-
-    def test_explicit_bu_env_override_wins(self):
-        import tools.browser_use_cli as bu
-        env = {"BU_CDP_WS": "ws://operator-override"}
-        with patch.object(bu, "_real_profile_consented", return_value=True):
-            err = bu._resolve_real_profile_cdp(env, force_local=True)
-        assert err is None
-        assert env["BU_CDP_WS"] == "ws://operator-override"
-        assert "BU_CDP_URL" not in env
-
-    def test_operator_cdp_override_wins(self):
-        import tools.browser_use_cli as bu
-        env = self._env()
-        with patch.object(bu, "_real_profile_consented", return_value=True), \
-             patch("tools.browser_tool_cdp._get_cdp_override_raw", return_value="ws://connect"):
-            err = bu._resolve_real_profile_cdp(env, force_local=True)
-        assert err is None and env == {}
-
-
-class TestBrowserExecSchemaGating:
-    def test_local_arg_absent_without_consent(self):
-        import tools.browser_use_cli as bu
-        with patch.object(bu, "_real_profile_consented", return_value=False):
-            overrides = bu._dynamic_schema_overrides()
-        assert "parameters" not in overrides
-        assert "local" not in bu.BROWSER_EXEC_SCHEMA["parameters"]["properties"]
-
-    def test_local_arg_present_with_consent(self):
-        import tools.browser_use_cli as bu
-        with patch.object(bu, "_real_profile_consented", return_value=True):
-            overrides = bu._dynamic_schema_overrides()
-        props = overrides["parameters"]["properties"]
-        assert "local" in props
-        assert props["local"]["type"] == "boolean"
-        # Static schema must stay untouched (override is a copy).
-        assert "local" not in bu.BROWSER_EXEC_SCHEMA["parameters"]["properties"]
-        # 'local' must not be required — pure opt-in.
-        assert "local" not in overrides["parameters"].get("required", [])
+        assert not hasattr(bu, "_resolve_real_profile_cdp")
+        assert not hasattr(bu, "_real_profile_consented")
+        assert not hasattr(bu, "_dynamic_schema_overrides")
+        assert not hasattr(bu, "BROWSER_EXEC_SCHEMA")
+        assert bu.is_browser_use_cli_mode() is False
 
 
 class TestNavigationRouting:

@@ -21,7 +21,8 @@ string.**
 
 For custom/local-only tools do NOT edit core: create `~/.hermes/plugins/<name>/plugin.yaml` +
 `__init__.py` and call `ctx.register_tool(...)`; plugin toolsets are discovered automatically and
-toggled without touching `tools/` or `toolsets.py` (`plugins/AGENTS.md`).
+toggled without touching `tools/` or `toolsets.py` (`plugins/AGENTS.md`). Browser Use CLI
+mode (`browser_exec`) is retired; only the built-in `browser_*` tools remain.
 
 1. `tools/your_tool.py`:
    ```python
@@ -70,8 +71,8 @@ Single `TOOLSETS` dict. Keys today: `browser, clarify, code_execution, cronjob, 
 delegation, discord, discord_admin, feishu_doc, feishu_drive, file, homeassistant, image_gen,
 kanban, memory, messaging, moa, rl, safe, search, session_search, skills, spotify, terminal, todo,
 tts, video, vision, web, yuanbao` (don't assert the list in tests). Per-platform enable/disable via
-`hermes tools` (curses) or `tools.<platform>.enabled/disabled` in config.yaml. `browser_exec`
-replaces the other browser tools when `browser.backend` is `browser-use`.
+`hermes tools` (curses) or `tools.<platform>.enabled/disabled` in config.yaml. Browser Use
+CLI mode (`browser_exec`) is retired; `browser.backend: off` selects the built-in tools.
 
 ## Backends and providers inside tools/
 

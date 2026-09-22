@@ -14,6 +14,13 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _browser_backend_off(monkeypatch):
+    """Browser Use CLI is retired; tests default to browser.backend: off."""
+    monkeypatch.setattr("tools.browser_use_cli.get_browser_backend", lambda: "off")
+    monkeypatch.setattr("tools.browser_use_cli.retired_browser_backend_error", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_host_browser_use_cli():
     """Keep the host's browser-use/uvx install out of tests.
 

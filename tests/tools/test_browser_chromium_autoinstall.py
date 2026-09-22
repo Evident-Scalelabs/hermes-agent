@@ -59,26 +59,12 @@ class TestInstall:
         assert captured["cmd"] == ["/x/agent-browser", "install"]
         assert "--with-deps" not in captured["cmd"]
 
-    def test_npx_form_is_binary_only(self, monkeypatch):
-        monkeypatch.setattr("tools.browser_tool_install._running_in_docker", lambda: False)
-        monkeypatch.setattr("tools.lazy_deps._allow_lazy_installs", lambda: True)
+    def test_npx_form_is_refused(self, monkeypatch):
+        """Floating npx agent-browser Chromium install is retired."""
         monkeypatch.setattr(bt_install, "_find_agent_browser", lambda: "npx agent-browser")
-        monkeypatch.setattr(bt, "_build_browser_env", lambda: {})
-        monkeypatch.setattr("tools.browser_tool_install._chromium_installed", lambda: True)
-        monkeypatch.setattr(shutil, "which", lambda _, path=None: "/usr/bin/npx")
-        monkeypatch.setattr("tools.browser_tool_install.node_tool_runnable", lambda p: True)
+        monkeypatch.setattr(bt, "_chromium_autoinstall_attempted", False)
+        assert bt_install._maybe_autoinstall_chromium() is False
 
-        captured = {}
-        monkeypatch.setattr(
-            bt.subprocess, "run",
-            lambda cmd, **kw: captured.update(cmd=cmd) or SimpleNamespace(returncode=0, stdout="", stderr=""),
-        )
-
-        assert bt_install._maybe_autoinstall_chromium() is True
-        assert captured["cmd"] == [
-            "/usr/bin/npx", "--ignore-scripts", "-y", bt.AGENT_BROWSER_NPX_SPEC, "install",
-        ]
-        assert "--with-deps" not in captured["cmd"]
 
     def test_nonzero_exit_returns_false(self, monkeypatch):
         monkeypatch.setattr("tools.browser_tool_install._running_in_docker", lambda: False)

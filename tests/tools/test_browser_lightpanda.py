@@ -538,11 +538,12 @@ class TestLightpandaEngineStatus:
         bt = self._gates(monkeypatch, _using_lightpanda_engine=lambda: False)
         assert bt_lightpanda_fallback.lightpanda_engine_status() == (False, "")
 
-    def test_used_in_browser_use_mode(self, monkeypatch):
+    def test_used_in_browser_use_mode_retired(self, monkeypatch):
+        """Browser Use CLI mode is retired; lightpanda always uses agent-browser --engine."""
         bt = self._gates(monkeypatch)
         used, reason = bt_lightpanda_fallback.lightpanda_engine_status()
         assert used is True
-        assert "lightpanda serve" in reason
+        assert "--engine lightpanda" in reason
 
     def test_used_with_builtin_tools(self, monkeypatch):
         bt = self._gates(monkeypatch, _is_browser_use_cli_mode=lambda: False)
@@ -567,13 +568,15 @@ class TestLightpandaEngineStatus:
         used, reason = bt_lightpanda_fallback.lightpanda_engine_status()
         assert used is False and "Browserbase" in reason
 
-    def test_shadowed_by_legacy_browser_use_cloud(self, monkeypatch):
+    def test_shadowed_by_legacy_browser_use_cloud_retired(self, monkeypatch):
+        """Legacy Browser Use cloud config no longer shadows lightpanda."""
         bt = self._gates(monkeypatch)
         monkeypatch.setattr(
             "tools.browser_use_cli.is_legacy_browser_use_cloud_config", lambda cfg: True
         )
         used, reason = bt_lightpanda_fallback.lightpanda_engine_status()
-        assert used is False and "Browser Use cloud" in reason
+        assert used is True
+        assert "--engine lightpanda" in reason
 
     def test_shadowed_by_real_profile(self, monkeypatch):
         bt = self._gates(monkeypatch, _use_real_profile=lambda: True)

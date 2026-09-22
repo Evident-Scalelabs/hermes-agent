@@ -224,13 +224,8 @@ class TestCloudProviderCachePolicy:
             lambda: {"browser": {}},
         )
 
-        bu_unconfigured = Mock()
-        bu_unconfigured.is_available.return_value = False
         bb_unconfigured = Mock()
         bb_unconfigured.is_available.return_value = False
-        monkeypatch.setattr(
-            "tools.browser_tool_cloud.BrowserUseBrowserProvider", lambda: bu_unconfigured
-        )
         monkeypatch.setattr(
             "tools.browser_tool_cloud.BrowserbaseBrowserProvider", lambda: bb_unconfigured
         )
@@ -238,10 +233,10 @@ class TestCloudProviderCachePolicy:
         assert bt_cloud._get_cloud_provider() is None
         assert browser_tool._cloud_provider_resolved is False
 
-        # Credentials self-heal — next call must retry and pick up the provider.
+        # Credentials self-heal — next call must retry and pick up Browserbase.
         healed = Mock(name="healed-provider")
         healed.is_available.return_value = True
-        monkeypatch.setattr("tools.browser_tool_cloud.BrowserUseBrowserProvider", lambda: healed)
+        monkeypatch.setattr("tools.browser_tool_cloud.BrowserbaseBrowserProvider", lambda: healed)
 
         assert bt_cloud._get_cloud_provider() is healed
         assert browser_tool._cloud_provider_resolved is True
@@ -258,7 +253,7 @@ class TestCloudProviderCachePolicy:
         monkeypatch.setattr("tools.browser_tool_cloud._registry_get_browser_provider", exploding_factory)
         monkeypatch.setattr(
             "hermes_cli.config.read_raw_config",
-            lambda: {"browser": {"cloud_provider": "browser-use"}},
+            lambda: {"browser": {"cloud_provider": "browserbase"}},
         )
 
         with caplog.at_level(logging.WARNING, logger="tools.browser_tool"):
@@ -266,6 +261,6 @@ class TestCloudProviderCachePolicy:
 
         assert browser_tool._cloud_provider_resolved is False
         assert any(
-            "browser-use" in r.message and r.levelno == logging.WARNING
+            "browserbase" in r.message and r.levelno == logging.WARNING
             for r in caplog.records
         )

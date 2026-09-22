@@ -399,11 +399,9 @@ DEFAULT_CONFIG = {
     },
 
     "browser": {
-        # "" = Browser Use mode when the browser-use CLI (or uvx) is available, else built-in tools
-        # (Camofox setups always keep built-in tools: no CDP surface); "browser-use" = force one
-        # browser_exec tool driving the Browser Use CLI over any CDP backend (local Chrome, cloud);
-        # "off" = force the built-in browser_navigate/browser_click/... tools.
-        "backend": "",
+        # "off" = built-in browser_navigate/browser_click/... tools (agent-browser).
+        # Browser Use CLI mode ("browser-use" / unset) is retired for this deployment.
+        "backend": "off",
         "inactivity_timeout": 120,
         "command_timeout": 30,  # seconds per browser command (screenshot, navigate, etc.)
         "snapshot_threshold": 15000,  # max chars before snapshot truncate-and-store (min 1000)
@@ -2848,10 +2846,9 @@ OPTIONAL_ENV_VARS = {
         "Browser session TTL (seconds)", tools=["browser_navigate", "browser_click"],
         password=False),
     "AGENT_BROWSER_ENGINE": _env(
-        "Local browser engine: auto (default Chrome), lightpanda (faster, no screenshots; Browser Use mode "
-        "spawns lightpanda serve), chrome", "Browser engine (auto/lightpanda/chrome)",
+        "Local browser engine: auto (default Chrome), lightpanda (faster, no screenshots), chrome", "Browser engine (auto/lightpanda/chrome)",
         url="https://lightpanda.io/docs/run-locally/installation/one-liner",
-        tools=["browser_exec", "browser_navigate", "browser_snapshot", "browser_click", "browser_vision"],
+        tools=["browser_navigate", "browser_snapshot", "browser_click", "browser_vision"],
         password=False, category="tool", advanced=True),
     "CAMOFOX_URL": _tool(
         "Camofox browser server URL for local anti-detection browsing (e.g. http://localhost:9377)",

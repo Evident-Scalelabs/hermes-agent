@@ -328,17 +328,9 @@ TOOL_CATEGORIES = {
                  browser_engine="auto", post_setup="agent_browser"),
             _row("Lightpanda", "free · local · no Chromium", "Zig headless browser spawned by Hermes, text-only (no screenshots)",
                  browser_provider="local", browser_engine="lightpanda", post_setup="lightpanda"),
-            # Cloud hook installs only the agent-browser CLI: Browser Use hosts its own Chromium, so the
-            # local-Chromium install and readiness gate must not apply (with "agent_browser" this row read
-            # "needs setup" forever on machines without a local Chromium build).
-            _row("Nous Subscription (Browser Use cloud)", "subscription", "Managed Browser Use billed to your subscription",
-                 browser_provider="browser-use", **_NOUS, managed_nous_feature="browser",
-                 override_env_vars=["BROWSER_USE_API_KEY"], post_setup="browserbase"),
             _row("Camofox", "free · local", "Anti-detection browser (Firefox/Camoufox)",
                  [_key("CAMOFOX_URL", "Camofox server URL", "https://github.com/jo-inc/camofox-browser", default="http://localhost:9377")],
                  browser_provider="camofox", post_setup="camofox"),
-            _row("Browser Use", "free · local · cloud", "New SOTA web harness (CLI 3.0)", browser_backend="browser-use",
-                 post_setup="browser_use_cli"),
         ],
     },
     "homeassistant": {

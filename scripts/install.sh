@@ -2869,40 +2869,10 @@ install_node_deps() {
 }
 
 install_browser_use_cli() {
-    # The Browser Use CLI is the default browser backend when it is runnable
-    # (tools/browser_use_cli.py). Provision it here so fresh installs don't
-    # silently fall back to the built-in browser tools. Best-effort: any
-    # failure is non-fatal because browser_exec can still run via uvx and
-    # `hermes tools` can install it later.
-    if [ "$SKIP_BROWSER" = true ]; then
-        log_info "Skipping Browser Use CLI install (--skip-browser)"
-        return 0
-    fi
-    if [ "$DISTRO" = "termux" ]; then
-        return 0
-    fi
-    if [ -z "$UV_CMD" ]; then
-        log_info "Skipping Browser Use CLI install (uv unavailable)"
-        return 0
-    fi
-    # MANAGED-FIRST: only Hermes' managed copy short-circuits. A browser-use
-    # on the user's PATH is a side install — resolution prefers the managed
-    # copy, so it must be provisioned regardless.
-    if [ -x "$HERMES_HOME/bin/browser-use" ]; then
-        log_success "Browser Use CLI already installed"
-        return 0
-    fi
-
-    log_info "Installing Browser Use CLI (default browser backend)..."
-    # UV_TOOL_BIN_DIR keeps the binary inside Hermes' managed bin dir, where
-    # the browser tool resolves it — no reliance on the user's PATH.
-    if run_with_timeout 600 env UV_NO_CONFIG=1 UV_TOOL_BIN_DIR="$HERMES_HOME/bin" \
-        "$UV_CMD" tool install browser-use >/dev/null 2>&1; then
-        log_success "Browser Use CLI installed"
-    else
-        log_warn "Browser Use CLI install failed — browser automation falls back to built-in tools."
-        log_info "Install later with: $UV_CMD tool install browser-use  (or via 'hermes tools')"
-    fi
+    # Browser Use CLI is retired. Built-in browser_* tools (agent-browser) are the
+    # only supported controller (browser.backend: off).
+    log_info "Skipping Browser Use CLI install (retired; use agent-browser)"
+    return 0
 }
 
 cua_driver_runtime_compatible() {

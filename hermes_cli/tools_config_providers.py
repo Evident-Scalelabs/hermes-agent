@@ -383,24 +383,8 @@ def _managed_provider_active(provider: dict, config: dict, managed_feature: str,
 
 
 def _browser_use_default_active(config: dict) -> bool:
-    """``browser.backend`` unset: Browser Use mode is the default, so the row is active whenever the
-    effective mode resolves on (legacy direct-API cloud config, or CLI runnable and no Camofox)."""
-    browser_cfg = config.get("browser") if isinstance(config, dict) else None
-    try:
-        from tools.browser_use_cli import _find_cli, is_legacy_browser_use_cloud_config
-
-        if is_legacy_browser_use_cloud_config(browser_cfg or {}):
-            return True
-        try:
-            from tools.browser_camofox import is_camofox_mode
-
-            if is_camofox_mode():
-                return False
-        except Exception:
-            pass
-        return _find_cli() is not None
-    except Exception:
-        return False
+    """Browser Use CLI mode is retired; the picker row is never active."""
+    return False
 
 
 def _browser_provider_active(provider: dict, config: dict) -> bool:
@@ -830,7 +814,7 @@ def _print_provider_selection(provider: dict, managed_feature, *, reconfigure: b
         elif bp:
             _print_success(f"  Browser cloud provider set to: {bp}")
     if provider.get("browser_backend"):
-        _print_success("  Browser set to Browser Use (browser_exec via CLI 3.0)")
+        _print_success("  Browser backend set to: " + str(provider.get("browser_backend")))
     if provider.get("browser_engine") and provider["browser_engine"] != "auto":
         _print_success(f"  Browser engine set to: {provider['browser_engine']}")
     if provider.get("web_backend"):

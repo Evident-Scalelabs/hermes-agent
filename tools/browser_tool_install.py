@@ -138,9 +138,7 @@ def _find_agent_browser(*, validate: bool = True) -> str:
     for candidate in _agent_browser_candidates(extended_path):
         if candidate and ok(candidate):
             return _accept(candidate)
-    # npx fallback (also searches the extended PATH)
-    if _resolve_npx_bin():
-        return _accept(_bt.NPX_AGENT_BROWSER_SENTINEL)
+    # Floating npx agent-browser@^0.26.0 install is retired. Missing pinned binary is unavailable.
     if not validate:
         raise FileNotFoundError("agent-browser CLI not found")
     try:  # Nothing found — try lazy installation before giving up.
@@ -159,21 +157,14 @@ def _find_agent_browser(*, validate: bool = True) -> str:
 
 
 def warm_agent_browser_npx_cache(timeout: float = 60.0) -> bool:
-    """Best-effort pre-fetch of the agent-browser npm package via npx (``hermes update`` / ``doctor --fix``).
+    """Best-effort pre-fetch retired: floating npx agent-browser install is closed.
 
-    Runs with the credential-scrubbed env every other agent-browser spawn uses (registry-fetched npm code must
-    never see the operator keyring), in its own process group, and tree-kills on timeout so a surviving
-    descendant cannot hold the capture pipe open. Never raises; True only when npx exited 0.
-
-    agent-browser is no longer a root package.json dependency (#43564) — it resolves lazily via ``npx
-    agent-browser`` instead, which keeps it out of the npm workspace install graph entirely (nothing to
-    prune it anymore) but means the first real invocation in a session would otherwise pay npx's
-    registry-lookup/fetch cost. Calling this during ``hermes update`` (or ``hermes doctor --fix``) warms
-    npx's own cache ahead of time, restoring the "available before any session starts" property
-    agent-browser had while it was an eager root dependency — without re-entangling it with the workspace
-    graph.
+    Returns False always. Callers that previously warmed ``npx agent-browser@^…``
+    must install a pinned ``agent-browser`` binary instead.
     """
     _bt = _origin()
+    if not getattr(_bt, "AGENT_BROWSER_NPX_SPEC", ""):
+        return False
     npx_bin = _resolve_npx_bin()
     if not npx_bin:
         return False
@@ -263,7 +254,8 @@ def _maybe_autoinstall_chromium() -> bool:
         return False
     install_cmd = [browser_cmd, "install"]
     if _is_npx_agent_browser_sentinel(browser_cmd):
-        install_cmd = [_resolve_npx_bin() or "npx", "--ignore-scripts", "-y", _bt.AGENT_BROWSER_NPX_SPEC, "install"]
+        # Floating npx agent-browser install is retired.
+        return False
 
     _bt.logger.info("browser: Chromium missing — auto-installing the browser binary (one-time ~170MB; disable via security.allow_lazy_installs)")
     try:
@@ -298,9 +290,12 @@ def check_browser_requirements() -> bool:
     cloud mode needs the CLI plus provider credentials (the provider hosts its own Chromium).
     """
     _bt = _origin()
-    # Browser Use CLI backend: browser_exec replaces the whole browser_* surface (incl. browser_cdp/browser_dialog check_fns).
-    if _bt._is_browser_use_cli_mode():
-        return False
+    try:
+        from tools.browser_use_cli import retired_browser_backend_error
+        if retired_browser_backend_error():
+            return False
+    except Exception:
+        pass
     # Camofox only needs the server URL, no agent-browser CLI.
     if _bt._is_camofox_mode():
         return True
@@ -311,6 +306,8 @@ def check_browser_requirements() -> bool:
     try:
         browser_cmd = _find_agent_browser(validate=False)
     except FileNotFoundError:
+        return False
+    if _is_npx_agent_browser_sentinel(browser_cmd):
         return False
     # Termux: the bare npx fallback is too fragile to advertise as a satisfied local dependency.
     if _requires_real_termux_browser_install(browser_cmd):
