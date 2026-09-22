@@ -30,31 +30,13 @@ def _info_lines(*lines: str) -> None:
 
 
 def _ensure_browser_use_cli(*, verbose_hints: bool = False) -> None:
-    """Install the Browser Use CLI if it isn't already runnable.
-    Primary driver engine for EVERY browser backend except Camofox (Firefox-based, no CDP surface).
-    MANAGED-FIRST: a browser-use on the user's PATH does NOT satisfy this check — only the
-    Hermes-managed ``$HERMES_HOME/bin`` copy does."""
-    _print_info("    Ensuring browser-use CLI (managed install)...")
-    try:
-        from tools.browser_use_cli import install_cli
-        ok, message = install_cli()
-    except Exception as exc:  # pragma: no cover — defensive
-        ok, message = False, f"install failed: {exc}"
-    if ok:
-        _print_success(f"    {message}")
-    else:
-        for line in str(message).splitlines():
-            _print_warning(f"    {line[:200]}")
-        _print_info("    Falling back to zero-install runs via `uvx browser-use`" if shutil.which("uvx")
-                    else "    Install manually: uv tool install browser-use  (https://docs.astral.sh/uv/)")
-    if verbose_hints:
-        _info_lines("Local Chrome needs remote debugging: chrome://inspect/#remote-debugging",
-                    "Cloud browsers: browser-use auth login  (or set BROWSER_USE_API_KEY)")
+    """Browser Use CLI install is retired; print the retirement notice."""
+    from tools.browser_use_cli import RETIRED_MSG
+    _print_info(f"    {RETIRED_MSG}")
 
 
 def _post_setup_lightpanda() -> None:
-    # Browser Use mode spawns ``lightpanda serve``; built-in tools go through agent-browser. No Chromium needed.
-    _ensure_browser_use_cli()
+    # Built-in tools go through agent-browser --engine lightpanda. No Browser Use CLI.
     from tools.browser_lightpanda import LIGHTPANDA_INSTALL_HINT, find_lightpanda_binary
 
     lightpanda_bin = find_lightpanda_binary()
@@ -89,47 +71,35 @@ def _install_chromium(install_cmd: list[str]) -> None:
 
 
 def _post_setup_agent_browser(post_setup_key: str) -> None:
-    """``agent_browser`` (local Chromium) and ``browserbase`` (cloud rows) hooks.
-    agent-browser is not a root package.json dependency — it resolves lazily via npx (or a
-    global/Hermes-managed install), so there is no ``npm install`` step here."""
-    # Every non-Camofox backend drives through the Browser Use CLI — install it here too.
-    _ensure_browser_use_cli()
+    """``agent_browser`` (local Chromium) and cloud-row hooks that need the pinned CLI."""
     try:
-        # Lazy import so the tools_config UI doesn't pull in browser_tool at import time.
-        # agent-browser resolves lazily via npx on the default install (#43564), invisible to the
-        # PATH/node_modules probes above. Mirror the rung hermes_cli.doctor uses so this probe can't diverge
-        # from it, including the Termux carve-out (bare npx is too fragile to advertise as ready there — see
-        # check_browser_requirements).
-        # agent-browser is no longer a root package.json dependency (#43564) — it resolves lazily via npx
-        # for most installs, which a bare PATH + node_modules probe can't see. Mirror the local-CLI tail of
-        # :func:`tools.browser_tool_install.check_browser_requirements` (same cascade, same Termux carve-out) so the
-        # setup/status surfaces can't diverge from what browser tools actually find at runtime;
-        # validate=False keeps this a cheap existence check with no subprocess spawn.
-        # agent-browser is no longer a root package.json dependency (#43564) — it resolves lazily via npx
-        # (or a global/Hermes-managed install) instead of a local `npm install`, so there's no node_modules/
-        # population step here anymore.
-        from tools.browser_tool import AGENT_BROWSER_NPX_SPEC
         from tools.browser_tool_install import (
-            _chromium_installed, _running_in_docker, _find_agent_browser, _resolve_npx_bin,
+            _chromium_installed, _running_in_docker, _find_agent_browser,
             _is_npx_agent_browser_sentinel)
     except Exception as exc:  # pragma: no cover — defensive
         _print_warning(f"    Could not check Chromium status: {exc}")
         return
 
-    # Reuse the runtime resolution cascade (PATH -> Homebrew/Hermes-managed node -> npx) rather than
-    # a bare shutil.which — Hermes-managed-Node-only setups resolve agent-browser/npx only that way.
     try:
         browser_cmd = _find_agent_browser(validate=False)
     except FileNotFoundError:
-        _print_warning("    npx not found - browser tools require Node.js: https://nodejs.org")
+        _print_warning(
+            "    agent-browser not found on PATH. Install the pinned binary "
+            "(e.g. npm install -g agent-browser@0.38.1). The floating npx fallback is retired."
+        )
+        return
+
+    if _is_npx_agent_browser_sentinel(browser_cmd):
+        _print_warning(
+            "    agent-browser is not a pinned binary on PATH. Install "
+            "agent-browser@0.38.1 globally; the floating npx fallback is retired."
+        )
         return
 
     # Only the local provider needs Chromium on disk; cloud providers host their own.
     if post_setup_key != "agent_browser":
         return
 
-    # Without Chromium the CLI hangs on first use until the command timeout fires. Skip inside
-    # Docker — the image bakes Chromium in, and runtime users usually can't write PLAYWRIGHT_BROWSERS_PATH.
     if _chromium_installed():
         _print_success("    Chromium browser already installed, nothing to do")
         return
@@ -140,16 +110,7 @@ def _post_setup_agent_browser(post_setup_key: str) -> None:
                     "  docker pull ghcr.io/nousresearch/hermes-agent:latest")
         return
 
-    if _is_npx_agent_browser_sentinel(browser_cmd):
-        # Re-resolve npx via the same cascade _find_agent_browser used — a bare shutil.which("npx")
-        # would silently diverge and hand subprocess.run a None argument.
-        npx_bin = _resolve_npx_bin()
-        if not npx_bin:
-            _print_warning("    npx not found - install Chromium manually: npx agent-browser install --with-deps")
-            return
-        install_cmd = [npx_bin, "--ignore-scripts", "-y", AGENT_BROWSER_NPX_SPEC, "install", "--with-deps"]
-    else:
-        install_cmd = [browser_cmd, "install", "--with-deps"]
+    install_cmd = [browser_cmd, "install", "--with-deps"]
     _install_chromium(install_cmd)
 
 

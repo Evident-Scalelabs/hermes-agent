@@ -273,10 +273,6 @@ class TestBrowserVaultTools:
                 assert browser_vault_tool._check_vault_available() is True
             with patch("tools.browser_tool_install.check_browser_requirements", return_value=False):
                 assert browser_vault_tool._check_vault_available() is False
-        # Browser Use mode: check_browser_requirements() is False by design, the vault must still ride along
-        with patch("tools.browser_use_cli.is_browser_use_cli_mode", return_value=True), \
-             patch("tools.browser_tool_install.check_browser_requirements", return_value=False):
-            assert browser_vault_tool._check_vault_available() is True
 
     def test_list_returns_identifier_never_password(self, store):
         from tools import browser_vault_tool

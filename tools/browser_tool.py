@@ -139,10 +139,9 @@ _EMPTY_OK_COMMANDS: frozenset = frozenset({"close", "record"})  # legitimately e
 
 # Sentinel _find_agent_browser returns/caches to mean "resolve via npx" rather
 # than a concrete path (also compared in hermes_cli/tools_config.py and doctor.py).
-NPX_AGENT_BROWSER_SENTINEL = "npx agent-browser"
-# Pinned to match scripts/install.sh / install.ps1's managed install so a bare-npx
-# resolution gets the same version instead of floating latest. Update together.
-AGENT_BROWSER_NPX_SPEC = "agent-browser@^0.26.0"
+# Floating npx install is retired: a missing pinned agent-browser binary is unavailable.
+NPX_AGENT_BROWSER_SENTINEL = "npx agent-browser"  # kept for isinstance checks in install helpers
+AGENT_BROWSER_NPX_SPEC = ""  # empty: _find_agent_browser must not expand to npx
 
 # Process caches (``_cached_X`` + ``_X_resolved`` pairs) for config-derived lookups;
 # reset by ``cleanup_all_browsers``. Written/read by the sibling modules via ``browser_tool_origin``.

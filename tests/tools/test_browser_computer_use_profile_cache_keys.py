@@ -25,25 +25,12 @@ def _under(home):
     return set_hermes_home_override(str(home))
 
 
-def test_browser_exec_cache_key_differs_per_served_profile_and_is_legacy_when_unscoped(two_homes):
+def test_browser_exec_retired_has_no_backend_cache_key():
+    """Browser Use / browser_exec is retired; profile cache keys live only on native tools."""
     import tools.browser_use_cli as bu
 
-    a, b = two_homes
-    assert bu._backend_cache_key("t1", "work") == "bu-named-work"
-    assert bu._backend_cache_key(None) == "browser-exec-default"
-    tok = _under(a)
-    try:
-        key_a = bu._backend_cache_key("t1", "work")
-    finally:
-        reset_hermes_home_override(tok)
-    tok = _under(b)
-    try:
-        key_b = bu._backend_cache_key("t1", "work")
-        key_b_again = bu._backend_cache_key("t1", "work")
-    finally:
-        reset_hermes_home_override(tok)
-    assert key_a != key_b and key_b == key_b_again
-    assert key_a.startswith("bu-named-work") and key_b.startswith("bu-named-work")
+    assert not hasattr(bu, "_backend_cache_key")
+    assert bu.is_browser_use_cli_mode() is False
 
 
 def test_computer_use_backend_not_shared_across_profiles_and_release_finds_it(two_homes, monkeypatch):

@@ -1,9 +1,12 @@
-"""Browser Use cloud browser plugin — bundled, auto-loaded."""
+"""Browser Use cloud browser plugin — retired for this deployment.
+
+The provider module remains importable for historical tests and compat pointers.
+Active discovery no longer registers it.
+"""
 
 from __future__ import annotations
 
-from plugins.browser.browser_use.provider import BrowserUseBrowserProvider
-
 
 def register(ctx) -> None:
-    ctx.register_browser_provider(BrowserUseBrowserProvider())
+    """No-op: Browser Use cloud hosting is not admitted for new sessions."""
+    return

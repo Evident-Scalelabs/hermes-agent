@@ -96,16 +96,16 @@ def _format_browser_timeout_error(
 
 
 def _agent_browser_argv(browser_cmd: str) -> list:
-    """Command prefix to invoke agent-browser (concrete binary, or the npx sentinel expanded).
+    """Command prefix to invoke agent-browser (concrete binary only).
 
-    npx is resolved through the same PATH cascade as ``_find_agent_browser`` (a bare
-    ``which("npx")`` would let a broken system npx shadow a healthy managed one); if
-    absent the bare name gives a readable ``FileNotFoundError``. ``--ignore-scripts``:
-    the spec is a floating range — a compromised future patch must not run install scripts.
+    Floating ``npx agent-browser@^0.26.0`` resolution is retired. Callers must
+    fail in preflight when only the sentinel is present.
     """
     if _install._is_npx_agent_browser_sentinel(browser_cmd):
-        _npx_bin = _install._resolve_npx_bin() or "npx"
-        return [_npx_bin, "--ignore-scripts", "--prefer-offline", "-y", _bt.AGENT_BROWSER_NPX_SPEC]
+        raise FileNotFoundError(
+            "agent-browser is not installed as a pinned binary. The floating npx "
+            "fallback is retired."
+        )
     return [browser_cmd]
 
 
@@ -532,10 +532,27 @@ def _browser_command_preflight() -> Dict[str, Any]:
     """Fail fast before spawning (missing CLI, Termux gap, interrupt, no Chromium in local
     mode — else every call hangs for command_timeout). Error result, or ``{"browser_cmd": path}``."""
     try:
+        from tools.browser_use_cli import retired_browser_backend_error
+        retired = retired_browser_backend_error()
+        if retired:
+            return {"success": False, "error": retired}
+    except Exception as e:
+        _bt.logger.debug("retired browser backend check failed: %s", e)
+
+    try:
         browser_cmd = _install._find_agent_browser()
     except FileNotFoundError as e:
         _bt.logger.warning("agent-browser CLI not found: %s", e)
         return {"success": False, "error": str(e)}
+
+    if _install._is_npx_agent_browser_sentinel(browser_cmd):
+        error = (
+            "agent-browser is not installed as a pinned binary. The floating npx "
+            "fallback is retired; install agent-browser@0.38.1 (or the image pin) "
+            "on PATH."
+        )
+        _bt.logger.warning("browser command blocked: %s", error)
+        return {"success": False, "error": error}
 
     if _install._requires_real_termux_browser_install(browser_cmd):
         error = _install._termux_browser_install_error()
@@ -693,3 +710,17 @@ def _run_browser_command(
         return _lp._annotate_lightpanda_fallback(fallback_result, fallback_reason)
 
     return result
+
+
+def run_browser_command(
+    task_id: str,
+    command: str,
+    args: List[str] = None,
+    timeout: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Public alias of ``_run_browser_command`` for Evident observation hooks.
+
+    Same task-scoped session as model ``browser_*`` tools. Pass ``--cdp`` or
+    ``--session``, never both, matching the pinned adapter.
+    """
+    return _run_browser_command(task_id, command, args=args, timeout=timeout)

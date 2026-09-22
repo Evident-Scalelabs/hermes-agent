@@ -198,8 +198,7 @@ class TestFindAgentBrowser:
         assert result == str(fake_binary)
 
     def test_npx_fallback_validate_false(self):
-        """The npx sentinel must resolve through the validate=False path too,
-        independent of the fully-mocked coverage in test_nous_subscription.py."""
+        """Floating npx agent-browser resolution is retired."""
         def mock_which(cmd, path=None):
             if cmd == "agent-browser":
                 return None
@@ -222,9 +221,8 @@ class TestFindAgentBrowser:
                  "tools.browser_tool_install._discover_homebrew_node_dirs",
                  return_value=[],
              ):
-            result = _find_agent_browser(validate=False)
-
-        assert result == "npx agent-browser"
+            with pytest.raises(FileNotFoundError):
+                _find_agent_browser(validate=False)
 
 
 class TestAgentBrowserCandidatePresent:
@@ -288,8 +286,8 @@ class TestRunBrowserCommandTermuxFallback:
         result = _run_browser_command("task-1", "navigate", ["https://example.com"])
 
         assert result["success"] is False
-        assert "bare npx fallback" in result["error"]
-        assert "agent-browser install" in result["error"]
+        assert "retired" in result["error"].lower() or "npx" in result["error"].lower()
+        assert "agent-browser" in result["error"]
 
 
 class TestRunBrowserCommandPathConstruction:
@@ -350,27 +348,12 @@ class TestRunBrowserCommandPathConstruction:
 
 
     def test_npx_sentinel_resolves_via_resolve_npx_bin_with_pinned_spec(self, tmp_path):
-        """When _find_agent_browser resolves the npx sentinel, the cmd prefix
-        must come from _resolve_npx_bin() (not a bare shutil.which("npx"), which
-        could let a broken system npx shadow a healthy Hermes-managed one) and
-        use the pinned agent-browser npx spec, not a bare "agent-browser"."""
-        captured_cmd = None
-
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.wait.return_value = 0
-
-        def capture_popen(cmd, **kwargs):
-            nonlocal captured_cmd
-            captured_cmd = cmd
-            return mock_proc
-
+        """Floating npx sentinel must not expand into a runnable agent-browser argv."""
         fake_session = {
             "session_name": "test-session",
             "session_id": "test-id",
             "cdp_url": None,
         }
-        fake_json = json.dumps({"success": True})
         hermes_home = str(tmp_path / "hermes-home")
 
         with patch("tools.browser_tool_install._find_agent_browser", return_value="npx agent-browser"), \
@@ -380,10 +363,6 @@ class TestRunBrowserCommandPathConstruction:
              patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)), \
              patch("tools.browser_tool_install._discover_homebrew_node_dirs", return_value=[]), \
              patch("hermes_constants.Path.home", return_value=tmp_path), \
-             patch("subprocess.Popen", side_effect=capture_popen), \
-             patch("os.open", return_value=99), \
-             patch("os.close"), \
-             patch("tools.interrupt.is_interrupted", return_value=False), \
              patch.dict(
                  os.environ,
                  {
@@ -393,15 +372,10 @@ class TestRunBrowserCommandPathConstruction:
                  },
                  clear=True,
              ):
-            with patch("builtins.open", mock_open(read_data=fake_json)):
-                _run_browser_command("test-task", "navigate", ["https://example.com"])
+            result = _run_browser_command("test-task", "navigate", ["https://example.com"])
 
-        assert captured_cmd is not None
-        assert captured_cmd[:5] == [
-            "/opt/hermes/node/bin/npx", "--ignore-scripts", "--prefer-offline", "-y",
-            AGENT_BROWSER_NPX_SPEC,
-        ]
-        assert captured_cmd[5:9] == ["--session", "test-session", "--json", "navigate"]
+        assert result["success"] is False
+        assert "retired" in result["error"].lower()
 
     def test_subprocess_path_includes_termux_fallback_dirs(self, tmp_path):
         """Termux fallback dirs should survive browser PATH rebuilding."""
@@ -460,16 +434,7 @@ class TestRunChromeFallbackCommandNpxResolution:
     agent-browser npx spec."""
 
     def test_npx_sentinel_resolves_via_resolve_npx_bin_with_pinned_spec(self, tmp_path):
-        captured_cmds = []
-
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.wait.return_value = 0
-
-        def capture_popen(cmd, **kwargs):
-            captured_cmds.append(cmd)
-            return mock_proc
-
+        """Floating npx sentinel must raise before chrome-fallback can spawn."""
         url_result = {"success": True, "data": {"url": "https://example.com"}}
 
         with patch("tools.browser_tool_session._run_browser_command", return_value=url_result), \
@@ -477,19 +442,9 @@ class TestRunChromeFallbackCommandNpxResolution:
              patch("tools.browser_tool_install._resolve_npx_bin", return_value="/opt/hermes/node/bin/npx"), \
              patch("tools.browser_tool_install._chromium_installed", return_value=True), \
              patch("tools.browser_tool_install._running_in_docker", return_value=False), \
-             patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)), \
-             patch("subprocess.Popen", side_effect=capture_popen):
-            _run_chrome_fallback_command("test-task", "navigate", ["https://example.com"], timeout=10)
-
-        assert captured_cmds, "expected at least one Popen call for the chrome-fallback session"
-        first_cmd = captured_cmds[0]
-        assert first_cmd[:5] == [
-            "/opt/hermes/node/bin/npx", "--ignore-scripts", "--prefer-offline", "-y",
-            AGENT_BROWSER_NPX_SPEC,
-        ]
-        assert first_cmd[5] == "--engine" and first_cmd[6] == "chrome"
-        assert first_cmd[7] == "--session" and first_cmd[8].startswith("h_cfb_")
-        assert first_cmd[9] == "--json"
+             patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)):
+            with pytest.raises(FileNotFoundError, match="retired"):
+                _run_chrome_fallback_command("test-task", "navigate", ["https://example.com"], timeout=10)
 
 
 class TestResolveNpxBinPriority:

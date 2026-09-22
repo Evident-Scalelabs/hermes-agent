@@ -10,7 +10,6 @@ from typing import Callable, Optional
 from agent.browser_provider import BrowserProvider as CloudBrowserProvider
 from agent.browser_registry import get_provider as _registry_get_browser_provider
 from hermes_constants import get_hermes_home_override, hermes_home_key
-from plugins.browser.browser_use.provider import BrowserUseBrowserProvider
 from plugins.browser.browserbase.provider import BrowserbaseBrowserProvider
 from tools.tool_backend_helpers import normalize_browser_cloud_provider
 from utils import is_truthy_value
@@ -98,16 +97,15 @@ def _instantiate_explicit_cloud_provider(provider_key: str) -> Optional[CloudBro
 
 
 def _autodetect_cloud_provider() -> Optional[CloudBrowserProvider]:
-    """Auto-detect: Browser Use, then Browserbase; never raises.
+    """Auto-detect: Browserbase only. Browser Use cloud hosting is retired.
 
     Third-party plugins are only reachable via explicit ``browser.cloud_provider: <name>``.
     """
     _bt = _origin()
     try:
-        for cls in (BrowserUseBrowserProvider, BrowserbaseBrowserProvider):
-            fallback_provider = cls()
-            if fallback_provider.is_available():
-                return fallback_provider
+        fallback_provider = BrowserbaseBrowserProvider()
+        if fallback_provider.is_available():
+            return fallback_provider
     except Exception:  # pragma: no cover - defensive: never poison cache
         _bt.logger.debug("Cloud provider auto-detect failed", exc_info=True)
     return None
@@ -133,9 +131,12 @@ def _resolve_cloud_provider_uncached() -> Optional[CloudBrowserProvider]:
                 _bt._cached_cloud_provider = None
                 _bt._cloud_provider_resolved = True
                 return None
-            if provider_key == "nous":
-                # Managed "Nous Subscription" is serviced by the Browser Use provider.
-                provider_key = "browser-use"
+            if provider_key in ("nous", "browser-use"):
+                from tools.tool_backend_helpers import selection_error
+                raise ValueError(selection_error(
+                    "browser", f"'{provider_key}'",
+                    "Browser Use cloud hosting is retired; use local Chromium or firecrawl",
+                ))
         if provider_key:
             resolved = _instantiate_explicit_cloud_provider(provider_key)
             if resolved is None:

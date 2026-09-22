@@ -79,13 +79,12 @@ class TestBundledPluginsRegister:
         from agent.browser_registry import list_providers
 
         names = sorted(p.name for p in list_providers())
-        assert names == ["browser-use", "browserbase", "firecrawl"]
+        assert names == ["browserbase", "firecrawl"]
 
     @pytest.mark.parametrize(
         "plugin_name,expected_display",
         [
             ("browserbase", "Browserbase"),
-            ("browser-use", "Browser Use"),
             ("firecrawl", "Firecrawl"),
         ],
     )
@@ -119,17 +118,15 @@ class TestBundledPluginsRegister:
         # picker can auto-install its CLI dependency on selection.
         assert schema.get("post_setup")
 
-    def test_browser_use_hidden_from_picker(self) -> None:
+    def test_browser_use_not_registered(self) -> None:
         _ensure_plugins_loaded()
         from agent.browser_registry import get_provider
+        assert get_provider("browser-use") is None
 
-        provider = get_provider("browser-use")
-        assert provider is not None
-        assert provider.get_setup_schema() is None
 
     @pytest.mark.parametrize(
         "plugin_name",
-        ["browserbase", "browser-use", "firecrawl"],
+        ["browserbase", "firecrawl"],
     )
     def test_each_plugin_implements_full_lifecycle(self, plugin_name: str) -> None:
         """The ABC's three lifecycle methods are all overridden."""
@@ -176,17 +173,12 @@ class TestIsAvailable:
         assert p.is_available() is True
 
 
-    def test_browser_use_satisfied_by_api_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_browser_use_not_available_via_api_key(self, monkeypatch) -> None:
         _ensure_plugins_loaded()
         from agent.browser_registry import get_provider
-
-        p = get_provider("browser-use")
-        assert p is not None
-        assert p.is_available() is False
         monkeypatch.setenv("BROWSER_USE_API_KEY", "key")
-        assert p.is_available() is True
+        assert get_provider("browser-use") is None
+
 
     def test_firecrawl_requires_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _ensure_plugins_loaded()
@@ -222,26 +214,13 @@ class TestRegistryResolution:
         assert _resolve("local") is None
 
 
-    def test_legacy_walk_prefers_browser_use_over_browserbase(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Rule 3: walk order is browser-use → browserbase."""
+    def test_legacy_walk_prefers_browserbase_without_browser_use(self, monkeypatch) -> None:
+        """Browser Use is retired from discovery; Browserbase remains the auto-detect candidate."""
         _ensure_plugins_loaded()
-        from agent.browser_registry import _resolve
-
-        # Both available — browser-use should win.
-        monkeypatch.setenv("BROWSER_USE_API_KEY", "k1")
-        monkeypatch.setenv("BROWSERBASE_API_KEY", "k2")
-        monkeypatch.setenv("BROWSERBASE_PROJECT_ID", "p")
-
-        provider = _resolve(None)
-        assert provider is not None
-        assert provider.name == "browser-use"
-
-
-# ---------------------------------------------------------------------------
-# Picker integration
-# ---------------------------------------------------------------------------
+        from agent.browser_registry import get_provider, list_providers
+        names = [p.name for p in list_providers()]
+        assert "browser-use" not in names
+        assert "browserbase" in names
 
 
 class TestPickerIntegration:

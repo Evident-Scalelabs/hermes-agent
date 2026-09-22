@@ -423,26 +423,27 @@ def _print_lightpanda_engine_status() -> None:
 
 
 def _browser_use(cli, arg: str) -> None:
-    """/browser use [off] — toggle Browser Use mode (browser.backend); resets the session."""
+    """/browser use — retired. Directs operators to browser.backend: off."""
     from hermes_cli.config import load_config, save_config
     from tools.registry import invalidate_check_fn_cache
-    if arg not in {"on", "off"}:
-        return _say_block(
-            "Usage: /browser use [off]",
-            "   /browser use       — switch to Browser Use mode (browser_exec via CLI 3.0)",
-            "   /browser use off   — revert to the built-in browser tools")
-    config = load_config()
+    from tools.browser_use_cli import BACKEND_DISABLED, RETIRED_MSG
     if arg == "on":
-        config.setdefault("browser", {})["backend"] = "browser-use"
-        headline = "🌐 Browser Use mode enabled — browser_exec via the Browser Use CLI 3.0"
-    else:
-        from tools.browser_use_cli import BACKEND_DISABLED
-        config.setdefault("browser", {})["backend"] = BACKEND_DISABLED
-        headline = "🌐 Browser Use mode disabled — built-in browser tools restored"
+        return _say_block(
+            "Browser Use mode is retired.",
+            f"   {RETIRED_MSG}",
+            "   Use /browser use off to set browser.backend: off explicitly.")
+    if arg not in {"", "off"}:
+        return _say_block(
+            "Usage: /browser use off",
+            "   Browser Use CLI mode is retired; only built-in browser_* tools remain.")
+    config = load_config()
+    config.setdefault("browser", {})["backend"] = BACKEND_DISABLED
     save_config(config)
     invalidate_check_fn_cache()
     cli.new_session()
-    _say_block(headline, "   Session reset. New tool configuration is active.")
+    _say_block(
+        "🌐 browser.backend set to off — built-in browser tools (agent-browser)",
+        "   Session reset. New tool configuration is active.")
 
 
 def _normalize_cdp_url(cdp_url: str):
@@ -574,11 +575,12 @@ _LOCAL_ENGINE_LINES = {
 def _browser_status() -> None:
     current = os.environ.get("BROWSER_CDP_URL", "").strip()
     print()
-    if _probe("tools.browser_use_cli", "is_browser_use_cli_mode", False):
-        _pr("🌐 Browser: Browser Use mode (browser_exec via the Browser Use CLI 3.0)",
-            "   Local Chrome via CDP, or Browser Use cloud browsers")
-        _print_lightpanda_engine_status()
-        return _say_block("   /browser use off      — revert to the built-in browser tools")
+    retired = _probe("tools.browser_use_cli", "retired_browser_backend_error", None)
+    if retired:
+        _pr("⚠ Browser: retired browser.backend setting",
+            f"   {retired}",
+            "   /browser use off      — set browser.backend: off")
+        return
     if current:
         _pr("🌐 Browser: connected to live Chromium-family browser via CDP",
             f"   Endpoint: {current}")
@@ -2173,7 +2175,7 @@ class CLICommandsMixin:
                 "   connect      Connect browser tools to your live Chromium-family browser session",
                 "   disconnect   Revert to default browser backend",
                 "   status       Show current browser mode",
-                "   use [off]    Switch to Browser Use mode (CLI 3.0) / back to built-in tools")
+                "   use off      Set browser.backend: off (Browser Use CLI is retired)")
             return
         handler(self, rest.strip())
 
