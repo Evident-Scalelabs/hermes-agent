@@ -457,3 +457,20 @@ def test_memory_provider_setup_runs_in_the_named_profiles_home(client, homes, mo
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["home"] == str(homes["worker_beta"])
+
+
+def test_plugins_hub_reads_provider_settings_in_launch_secret_scope(client, monkeypatch):
+    from agent.secret_scope import get_secret, UnscopedSecretError
+    from tui_gateway.launch_profile_policy import activate_multi_profile_hosting
+    from hermes_cli.web_routers import dashboard_ui
+
+    monkeypatch.setenv("MEM0_MODE", "oss")
+    activate_multi_profile_hosting()
+    monkeypatch.setenv("MEM0_MODE", "platform")
+    monkeypatch.setattr(dashboard_ui, "_merged_plugins_hub",
+                        lambda: {"mode": get_secret("MEM0_MODE")})
+    response = client.get("/api/dashboard/plugins/hub")
+    assert response.status_code == 200
+    assert response.json() == {"mode": "oss"}
+    with pytest.raises(UnscopedSecretError):
+        get_secret("MEM0_MODE")
