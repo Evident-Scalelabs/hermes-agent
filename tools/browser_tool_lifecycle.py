@@ -164,7 +164,8 @@ def _cleanup_inactive_browser_sessions():
         _bt.logger.info("Cleaning up inactive session for task: %s (inactive for %ss)", task_id, elapsed)
         try:
             with _session_owner_scope(task_id):
-                cleanup_browser(task_id)
+                if cleanup_browser(task_id) is False:
+                    raise RuntimeError("Browser cleanup returned failure; ownership retained for retry")
             _forget_session_tracking(task_id)
         except Exception as e:
             with _bt._cleanup_lock:
@@ -175,13 +176,15 @@ def _cleanup_inactive_browser_sessions():
                 continue
             _bt.logger.error("Browser cleanup failed %d times for inactive session %s; "
                          "force-reaping: %s", failures, task_id, e)
+            reaped = False
             try:
                 with _session_owner_scope(task_id):
-                    _force_reap_browser_session(task_id)
+                    reaped = _force_reap_browser_session(task_id) is not False
             except Exception as reap_exc:
                 _bt.logger.error("Force-reap of browser session %s failed: %s", task_id, reap_exc)
             finally:
-                _forget_session_tracking(task_id, activity=False)
+                if reaped:
+                    _forget_session_tracking(task_id, activity=False)
 
 
 def _write_owner_pid(socket_dir: str, session_name: str) -> None:
@@ -600,7 +603,7 @@ def _drop_last_active_binding(task_id: str) -> None:
         _bt._last_active_session_key.pop(bare_task_id, None)
 
 
-def cleanup_browser(task_id: Optional[str] = None) -> None:
+def cleanup_browser(task_id: Optional[str] = None) -> bool:
     """Clean up browser session(s) for a task: a bare task id reaps BOTH the primary
     session and any hybrid local sidecar; a ``::local`` key reaps only that one."""
     if task_id is None:
@@ -611,9 +614,13 @@ def cleanup_browser(task_id: Optional[str] = None) -> None:
     with _bt._cleanup_lock:
         if not _bt._is_local_sidecar_key(task_id) and sidecar_key in _bt._active_sessions:
             session_keys.append(sidecar_key)
+    cleaned = True
     for session_key in session_keys:
-        _cleanup_single_browser_session(session_key)
-    _drop_last_active_binding(task_id)
+        if _cleanup_single_browser_session(session_key) is False:
+            cleaned = False
+    if cleaned:
+        _drop_last_active_binding(task_id)
+    return cleaned
 
 
 def _kill_verified_daemon(socket_dir: str, session_name: str) -> bool:
@@ -668,7 +675,7 @@ def _release_session_resources(task_id: str, session_info: Dict[str, Any]) -> No
             shutil.rmtree(socket_dir, ignore_errors=True)
 
 
-def _force_reap_browser_session(task_id: str) -> None:
+def _force_reap_browser_session(task_id: str) -> bool:
     """Janitor last resort: skip the failing ``close`` round-trips, release resources directly.
 
     Janitor last resort after repeated cleanup failures (#100738).
@@ -676,14 +683,22 @@ def _force_reap_browser_session(task_id: str) -> None:
     _cdp._stop_cdp_supervisor(task_id)
     with _bt._cleanup_lock:
         session_info = _bt._active_sessions.get(task_id)
+    if session_info and session_info.get("_cdp_target_id") and not session_info.get("bb_session_id"):
+        name = session_info["session_name"]
+        socket_dir = os.path.join(_bt._socket_safe_tmpdir(), f"agent-browser-{name}")
+        if not _close_orphan_tab(socket_dir, name):
+            _bt.logger.warning("Task tab cleanup incomplete for %s; retaining session ownership for retry", task_id)
+            return False
+    with _bt._cleanup_lock:
         _bt._session_last_activity.pop(task_id, None)
         _bt._recording_sessions.discard(task_id)
     if session_info:
         _release_session_resources(task_id, session_info)
     _drop_last_active_binding(task_id)
+    return True
 
 
-def _cleanup_single_browser_session(task_id: str) -> None:
+def _cleanup_single_browser_session(task_id: str) -> Optional[bool]:
     """Reap a single browser session by its exact session key."""
     _cdp._stop_cdp_supervisor(task_id)  # close our WebSocket BEFORE the backend tears down the endpoint
 
@@ -723,11 +738,19 @@ def _cleanup_single_browser_session(task_id: str) -> None:
     else:
         try:
             if session_info.get("_cdp_target_id"):
-                _session._run_browser_command(task_id, "tab", ["close", session_info["_cdp_target_id"]], timeout=10)
-            _session._run_browser_command(task_id, "close", [], timeout=10)
+                result = _session._run_browser_command(task_id, "tab", ["close", session_info["_cdp_target_id"]], timeout=10)
+                if not result.get("success") and result.get("code") != "tab_gone":
+                    _bt.logger.warning("agent-browser tab close failed for task %s; ownership retained: %s", task_id, result.get("error"))
+                    return False
+                session_info.pop("_cdp_target_id", None)
+            result = _session._run_browser_command(task_id, "close", [], timeout=10)
+            if not result.get("success"):
+                _bt.logger.warning("agent-browser close failed for task %s; ownership retained: %s", task_id, result.get("error"))
+                return False
             _bt.logger.debug("agent-browser close command completed for task %s", task_id)
         except Exception as e:
             _bt.logger.warning("agent-browser close failed for task %s: %s", task_id, e)
+            return False
 
     _release_session_resources(task_id, session_info)
     _bt.logger.debug("Removed task %s from active sessions", task_id)

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from unittest.mock import Mock
 
 import pytest
@@ -100,11 +101,16 @@ def test_real_cdp_tasks_own_tabs_supervisors_and_daemons(monkeypatch):
             lines = (profile / 'DevToolsActivePort').read_text().splitlines()
             endpoint = f'ws://127.0.0.1:{lines[0]}{lines[1]}'
             monkeypatch.setenv('BROWSER_CDP_URL', endpoint)
+            def page_targets():
+                with urllib.request.urlopen(f'http://127.0.0.1:{lines[0]}/json/list', timeout=5) as response:
+                    return {page['id'] for page in json.load(response) if page['type'] == 'page'}
+            initial_targets = page_targets()
             for task in ('owner-a', 'owner-b'):
                 result = session.run_browser_command(task, 'open', [f'data:text/html,<title>{task}</title>'])
                 assert result['success'], result
             a, b = (bt._active_sessions[key] for key in ('owner-a', 'owner-b'))
             assert a['_cdp_target_id'] != b['_cdp_target_id']
+            assert page_targets() == initial_targets | {a['_cdp_target_id'], b['_cdp_target_id']}
             for task, info in (('owner-a', a), ('owner-b', b)):
                 observed = session.run_browser_command(task, 'eval', ['document.title'])
                 assert observed['data']['result'] == task, observed
@@ -145,6 +151,8 @@ os._exit(0)
                 lifecycle.cleanup_browser('owner-a')
             assert session.run_browser_command('owner-b', 'eval', ['document.title'])['data']['result'] == 'owner-b'
             assert SUPERVISOR_REGISTRY.get('owner-a') is None
+            lifecycle.cleanup_browser('owner-b')
+            assert page_targets() == initial_targets
         finally:
             try:
                 for task in ('owner-a', 'owner-b'):
@@ -183,3 +191,14 @@ def test_orphan_tab_close_failure_keeps_daemon_and_metadata(monkeypatch, tmp_pat
     assert lifecycle._reap_socket_dir(str(tmp_path), 'cdp-dead', set()) is False
     assert (tmp_path / 'cdp-dead.pid').exists()
     kill.assert_not_called()
+
+
+@pytest.mark.parametrize('failed_command', ['tab', 'close'])
+def test_cleanup_false_result_warns_and_preserves_owner(monkeypatch, caplog, failed_command):
+    info = {'session_name': 'owned', 'cdp_url': 'ws://127.0.0.1:1', '_cdp_target_id': 'task-target'}
+    monkeypatch.setattr(bt, '_active_sessions', {'task': info})
+    monkeypatch.setattr(session, '_run_browser_command', lambda _task, command, *_a, **_k:
+                        {'success': command != failed_command, 'error': 'connection lost'})
+    assert lifecycle.cleanup_browser('task') is False
+    assert bt._active_sessions['task'] is info
+    assert 'ownership retained' in caplog.text

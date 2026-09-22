@@ -649,11 +649,11 @@ def _dispatch_browser_command(
 
     try:
         if session_info.get("cdp_url") and not teardown and not session_info.get("_cdp_tab_initialized"):
-            # Explicit tab creation avoids adopting the shared endpoint's active tab on first attach.
+            # Bind explicitly before enabling --pin-tab; pinning the initial attach creates an extra blank tab.
             target_id = session_info.get("_cdp_target_id")
             tab_args = [target_id] if target_id else ["new", "about:blank"]
             initial = _spawn_and_collect(task_id, session_info,
-                                         argv + backend_args + ["--json", "tab"] + tab_args,
+                                         argv + backend_args[:-1] + ["--json", "tab"] + tab_args,
                                          "tab", engine, timeout)
             if not initial.get("success"):
                 return engine, initial
