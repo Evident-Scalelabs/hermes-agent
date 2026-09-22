@@ -338,27 +338,4 @@ class TestCamofoxVisionConfig:
 
 
 # ---------------------------------------------------------------------------
-# Routing integration — verify browser_tool routes to camofox
-# ---------------------------------------------------------------------------
-
-
-class TestBrowserToolRouting:
-    """Verify that browser_tool.py delegates to camofox when CAMOFOX_URL is set."""
-
-    @patch("tools.browser_camofox.requests.post")
-    def test_browser_navigate_routes_to_camofox(self, mock_post, monkeypatch):
-        monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
-        mock_post.return_value = _mock_response(json_data={"tabId": "tab_rt", "url": "https://example.com"})
-
-        from tools.browser_tool import browser_navigate
-        # Bypass SSRF check for test URL
-        with patch("tools.browser_tool._is_safe_url", return_value=True):
-            result = json.loads(browser_navigate("https://example.com", task_id="t_route"))
-        assert result["success"] is True
-
-    def test_check_requirements_passes_with_camofox(self, monkeypatch):
-        monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
-        from tools.browser_tool_install import check_browser_requirements
-        assert check_browser_requirements() is True
-
-
+# Runtime Camofox retirement is covered by test_browser_owned_cdp.py.

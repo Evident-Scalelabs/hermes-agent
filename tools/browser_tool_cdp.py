@@ -108,10 +108,13 @@ def _ensure_cdp_supervisor(task_id: str) -> None:
     snapshots just lack ``pending_dialogs`` / ``frame_tree``.
     """
     _bt = _origin()
+    with _bt._cleanup_lock:
+        session_info = _bt._active_sessions.get(task_id, {})
+    target_id = session_info.get("_cdp_target_id")
+    if session_info.get("cdp_url") and not target_id:
+        return  # agent-browser must create/bind the task tab before any supervisor can attach.
     cdp_url = _get_cdp_override()
     if not cdp_url:
-        with _bt._cleanup_lock:
-            session_info = _bt._active_sessions.get(task_id, {})
         maybe = str(session_info.get("cdp_url") or "")
         if maybe:
             cdp_url = _resolve_cdp_override(maybe)
@@ -120,7 +123,8 @@ def _ensure_cdp_supervisor(task_id: str) -> None:
     try:
         from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
         policy, timeout_s = _get_dialog_policy_config()
-        SUPERVISOR_REGISTRY.get_or_start(task_id=task_id, cdp_url=cdp_url, dialog_policy=policy, dialog_timeout_s=timeout_s)
+        SUPERVISOR_REGISTRY.get_or_start(task_id=task_id, cdp_url=cdp_url, dialog_policy=policy,
+                                         dialog_timeout_s=timeout_s, target_id=target_id)
     except Exception as exc:
         _bt.logger.debug("CDP supervisor attach for task=%s failed (non-fatal): %s", task_id, exc)
 

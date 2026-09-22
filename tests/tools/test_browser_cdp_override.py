@@ -144,9 +144,9 @@ class TestGetCdpOverride:
         monkeypatch.setenv("CAMOFOX_URL", "http://localhost:9377")
         monkeypatch.delenv("BROWSER_CDP_URL", raising=False)
 
-        # No CDP anywhere -> camofox mode is on.
+        # Retired Camofox never becomes a controller, including without CDP.
         with patch("hermes_cli.config.read_raw_config", return_value={}):
-            assert bc.is_camofox_mode() is True
+            assert bc.is_camofox_mode() is False
 
         # A config-only CDP override suppresses camofox.
         with patch("hermes_cli.config.read_raw_config",

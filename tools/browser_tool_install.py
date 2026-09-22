@@ -2,7 +2,6 @@
 
 Split out of ``tools/browser_tool.py``. Facade-owned state is read through ``_bt`` (``tools.browser_tool``, resolved per call) — no import cycle."""
 
-import contextlib
 import functools
 import os
 import shutil
@@ -16,7 +15,6 @@ from hermes_constants import agent_browser_runnable, get_hermes_home, is_termux 
 from tools.browser_tool_origin import origin_module as _origin
 from tools import browser_tool_cdp as _cdp
 from tools import browser_tool_cloud as _cloud
-from tools import browser_tool_lifecycle as _lifecycle
 from tools import browser_tool_lightpanda_fallback as _lp
 
 
@@ -162,35 +160,7 @@ def warm_agent_browser_npx_cache(timeout: float = 60.0) -> bool:
     Returns False always. Callers that previously warmed ``npx agent-browser@^…``
     must install a pinned ``agent-browser`` binary instead.
     """
-    _bt = _origin()
-    if not getattr(_bt, "AGENT_BROWSER_NPX_SPEC", ""):
-        return False
-    npx_bin = _resolve_npx_bin()
-    if not npx_bin:
-        return False
-    env = _bt._build_browser_env()
-    env["PATH"] = _merge_browser_path(env.get("PATH", ""))
-    popen_kwargs: dict = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True, "env": env}
-    if os.name == "posix":
-        popen_kwargs.update(creationflags=windows_hide_flags(), start_new_session=True)
-    else:
-        popen_kwargs["creationflags"] = windows_hide_flags() | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    # --ignore-scripts: AGENT_BROWSER_NPX_SPEC is a floating range; a compromised future patch must not run
-    # install-time lifecycle scripts here. --prefer-offline: once cached, repeat runs must not re-hit the registry.
-    cmd = [npx_bin, "--ignore-scripts", "--prefer-offline", "-y", _bt.AGENT_BROWSER_NPX_SPEC, "--version"]
-    try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, **popen_kwargs)
-    except Exception:
-        return False
-    try:
-        proc.communicate(timeout=timeout)
-        return proc.returncode == 0
-    except Exception as exc:
-        _lifecycle._kill_process_tree(proc)
-        if isinstance(exc, subprocess.TimeoutExpired):
-            with contextlib.suppress(Exception):
-                proc.communicate(timeout=5)
-        return False
+    return False
 
 
 def _chromium_search_roots() -> List[str]:

@@ -14,7 +14,8 @@ from tools import browser_tool_install as bt_install
 @pytest.fixture
 def fake_tmpdir(tmp_path):
     """Patch _socket_safe_tmpdir to return a temp dir we control."""
-    with patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)):
+    with patch("tools.browser_tool._socket_safe_tmpdir", return_value=str(tmp_path)), \
+         patch("tools.browser_tool_lifecycle._close_orphan_tab", return_value=True):
         yield tmp_path
 
 
