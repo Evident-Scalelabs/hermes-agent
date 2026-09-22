@@ -2093,7 +2093,9 @@ def _inject_context_engine_tools(agent):
             _tname = _schema["name"]
             if _tname in _existing_tool_names:
                 continue  # already registered via plugin/cache path
-            agent.tools.extend(sanitize_tool_schemas([{"type": "function", "function": _schema}]))
+            _tool = sanitize_tool_schemas([{"type": "function", "function": _schema}])[0]
+            _tool["function"].setdefault("strict", False)
+            agent.tools.append(_tool)
             for _names in (agent.valid_tool_names, agent._context_engine_tool_names, _existing_tool_names):
                 _names.add(_tname)
 
