@@ -19,6 +19,7 @@ def test_context_engine_conditional_schema_is_sanitized_without_mutating_plugin(
                             valid_tool_names=set(), session_id="fixture", platform="cli", model="fixture")
     _inject_context_engine_tools(agent)
     assert "allOf" not in agent.tools[0]["function"]["parameters"]
+    assert agent.tools[0]["function"]["strict"] is False
     assert schema == original
     assert agent.valid_tool_names == {"lcm_compile_evidence"}
     _inject_context_engine_tools(agent)
