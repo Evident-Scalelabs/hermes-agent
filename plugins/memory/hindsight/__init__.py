@@ -273,6 +273,8 @@ def _load_config() -> dict:
         "apiKey": get_secret("HINDSIGHT_API_KEY", ""),
         "timeout": _parse_int_setting(os.environ.get("HINDSIGHT_TIMEOUT"), _DEFAULT_TIMEOUT),
         "idle_timeout": _parse_int_setting(os.environ.get("HINDSIGHT_IDLE_TIMEOUT"), _DEFAULT_IDLE_TIMEOUT),
+        # Internal oneshot transport of the existing native setting; never persisted.
+        "recall_sync": get_secret("HINDSIGHT_RECALL_SYNC", "") == "true",
         "retain_tags": get_secret("HINDSIGHT_RETAIN_TAGS", "") or "",
         "observation_scopes": get_secret("HINDSIGHT_RETAIN_OBSERVATION_SCOPES", "") or "",
         "retain_source": _scoped_setting("HINDSIGHT_RETAIN_SOURCE", _DEFAULT_RETAIN_SOURCE),
@@ -888,16 +890,22 @@ class HindsightMemoryProvider(MemoryProvider):
             logger.debug("Prefetch: skipped (%s)", why)
         return why is not None
 
-    def _recall(self, query: str, *, include_support: bool = False):
+    def _recall(self, query: str) -> dict:
         kwargs: dict = {"bank_id": self._bank_id, "query": query, "budget": self._budget, "max_tokens": self._recall_max_tokens}
         if self._recall_tags:
             kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match)
         if self._recall_types:
             kwargs["types"] = self._recall_types
-        if include_support:
-            kwargs.update(include_source_facts=True, max_source_facts_tokens=1024)
+        kwargs.update(include_source_facts=True, max_source_facts_tokens=1024)
         resp = self._run_hindsight_operation(lambda client: client.arecall(**kwargs))
-        return resp if include_support else resp.results or []
+        response = resp.model_dump(mode="json", by_alias=True, exclude_none=True)
+        facts = response.get("source_facts") or {}
+        missing = sorted({fact_id for result in response["results"]
+                          for fact_id in (result.get("source_fact_ids") or []) if fact_id not in facts})
+        # Client 0.6.1 does not expose the server's source_facts_truncated flag.
+        response.update(missing_source_fact_ids=missing, support_completeness="unverified",
+                        authority="Historical attributed advice; resolve sources before relying on it. Missing or truncated support is not evidence of absence.")
+        return response
 
     def _reflect(self, query: str) -> str | None:
         resp = self._run_hindsight_operation(
@@ -916,11 +924,13 @@ class HindsightMemoryProvider(MemoryProvider):
                 return self._reflect(query) or "", 0
             logger.debug("Recall: calling recall (bank=%s, query_len=%d, budget=%s)",
                          self._bank_id, len(query), self._budget)
-            results = self._recall(query)
-            logger.debug("Recall: returned %d results", len(results))
-            return "\n".join(f"- {r.text}" for r in results if r.text), len(results)
+            response = self._recall(query)
+            count = len(response["results"])
+            logger.debug("Recall: returned %d results", count)
+            return json.dumps(response, ensure_ascii=False) if count else "", count
         except Exception as e:
-            logger.debug("Hindsight recall failed: %s", e, exc_info=True)
+            logger.warning("Hindsight recall unavailable (%s); continuing without memory. This is not a confirmed empty result.",
+                           type(e).__name__)
             return "", 0
 
     def _finish_prefetch(self, result: str, count: int) -> str:
@@ -931,9 +941,9 @@ class HindsightMemoryProvider(MemoryProvider):
             return ""
         logger.debug("Prefetch: returning %d chars of context", len(result))
         header = self._recall_prompt_preamble or (
-            "# Hindsight Memory (persistent cross-session context)\n"
-            "Use this to answer questions about the user and prior sessions. "
-            "Do not call tools to look up information that is already present here."
+            "# Hindsight Memory (historical advice)\n"
+            "Verify supporting sources before relying on material claims. "
+            "Dates describe prior observations; missing or incomplete support is unverified."
         )
         return f"{header}\n\n{result}"
 
@@ -1140,14 +1150,7 @@ class HindsightMemoryProvider(MemoryProvider):
         query = args["query"]
         logger.debug("Tool hindsight_recall: bank=%s, query_len=%d, budget=%s",
                      self._bank_id, len(query), self._budget)
-        response = self._recall(query, include_support=True).model_dump(mode="json", by_alias=True, exclude_none=True)
-        facts = response.get("source_facts") or {}
-        missing = sorted({fact_id for result in response["results"]
-                          for fact_id in (result.get("source_fact_ids") or []) if fact_id not in facts})
-        # Client 0.6.1 does not expose the server's source_facts_truncated flag.
-        response.update(missing_source_fact_ids=missing, support_completeness="unverified",
-                        authority="Historical attributed advice; resolve sources before relying on it. Missing or truncated support is not evidence of absence.")
-        return response
+        return self._recall(query)
 
     def _tool_reflect(self, args: dict) -> str:
         query = args["query"]
@@ -1173,6 +1176,9 @@ class HindsightMemoryProvider(MemoryProvider):
         try:
             return json.dumps({"result": handler(self, args)})
         except Exception as e:
+            if tool_name == "hindsight_recall":
+                logger.warning("Hindsight recall unavailable (%s); no absence can be inferred.", type(e).__name__)
+                return tool_error(f"{failure} ({type(e).__name__}); memory unavailable, not confirmed absent.")
             logger.warning("%s failed: %s", tool_name, e, exc_info=True)
             return tool_error(f"{failure}: {e}")
 
