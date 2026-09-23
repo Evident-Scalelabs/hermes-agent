@@ -136,9 +136,23 @@ Available in `hybrid` and `tools` memory modes:
 
 | Tool | Description |
 |------|-------------|
-| `hindsight_retain` | Store information with auto entity extraction; supports optional per-call `tags` |
-| `hindsight_recall` | Multi-strategy search (semantic + entity graph) |
+| `hindsight_retain` | Store information with auto entity extraction; optional `tags`, `occurred_at` and string-valued provenance `metadata` |
+| `hindsight_recall` | Multi-strategy search preserving native IDs, dates, documents and bounded supporting facts |
 | `hindsight_reflect` | Cross-memory synthesis (LLM-powered) |
+
+Explicit retain returns a generated `document_id`, native status/usage and a separate
+unconfirmed observation-consolidation status. A timeout returns `status: unknown` with
+the same handle; inspect it before retrying, never submit a new copy blindly. Caller
+metadata cannot override native session/platform identity, bank routing or document
+identity. Source pointers and status labels remain caller assertions, not verified facts.
+Use known event dates; qualify unknown observation dates in content. Storage time is
+not measurement time, and retention does not establish downstream acceptance.
+
+Explicit recall adds a 1,024-token source-fact allowance to the configured result limit
+(default 4,096), without requesting chunks. Client 0.6.1 does not expose the server's
+support-truncation flag: `support_completeness` is therefore `unverified`, with missing
+source-fact IDs listed. Resolve original sources before relying on them. Automatic
+recall and conversation retention/append behavior are unchanged.
 
 ## Environment Variables
 

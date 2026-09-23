@@ -23,6 +23,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from uuid import uuid4
 
 from agent.memory_provider import MemoryProvider, RecallStatus, spawn_context_thread
 from agent.secret_scope import UnscopedSecretError, get_secret
@@ -220,6 +221,8 @@ RETAIN_SCHEMA = {
         "properties": {
             "content": {"type": "string", "description": "The information to store."},
             "context": {"type": "string", "description": "Short label (e.g. 'user preference', 'project decision')."},
+            "metadata": {"type": "object", "additionalProperties": {"type": "string"},
+                         "description": "Optional source/version/status pointers, not verified facts. Native identity fields cannot be overridden."},
             "tags": {"type": "array", "items": {"type": "string"},
                      "description": "Optional per-call tags to merge with configured default retain tags."},
             "occurred_at": {"type": "string", "description": (
@@ -885,14 +888,16 @@ class HindsightMemoryProvider(MemoryProvider):
             logger.debug("Prefetch: skipped (%s)", why)
         return why is not None
 
-    def _recall(self, query: str) -> list:
+    def _recall(self, query: str, *, include_support: bool = False):
         kwargs: dict = {"bank_id": self._bank_id, "query": query, "budget": self._budget, "max_tokens": self._recall_max_tokens}
         if self._recall_tags:
             kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match)
         if self._recall_types:
             kwargs["types"] = self._recall_types
+        if include_support:
+            kwargs.update(include_source_facts=True, max_source_facts_tokens=1024)
         resp = self._run_hindsight_operation(lambda client: client.arecall(**kwargs))
-        return resp.results or []
+        return resp if include_support else resp.results or []
 
     def _reflect(self, query: str) -> str | None:
         resp = self._run_hindsight_operation(
@@ -1103,23 +1108,46 @@ class HindsightMemoryProvider(MemoryProvider):
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return [] if self._memory_mode == "context" else [RETAIN_SCHEMA, RECALL_SCHEMA, REFLECT_SCHEMA]
 
-    def _tool_retain(self, args: dict) -> str:
+    def _tool_retain(self, args: dict) -> dict:
+        extra = args.get("metadata", {})
+        if not isinstance(extra, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in extra.items()):
+            raise ValueError("metadata must contain only string keys and values")
+        reserved = set(_METADATA_ATTRS) | {"source", "retained_at", "message_count", "turn_index", "agent_workspace", "bank_id", "document_id"}
+        if reserved.intersection(extra) or {"bank_id", "document_id"}.intersection(args):
+            raise ValueError("Native identity, bank and document fields cannot be overridden")
+        metadata = {**extra, **self._build_metadata(message_count=1, turn_index=self._turn_index)}
         content, context = args["content"], args.get("context")
-        item = self._build_retain_kwargs(content, context=context, tags=args.get("tags"),
+        item = self._build_retain_kwargs(content, context=context, metadata=metadata, tags=args.get("tags"),
                                          occurred_at=args.get("occurred_at"))
-        logger.debug("Tool hindsight_retain: bank=%s, content_len=%d, context=%s",
-                     self._bank_id, len(content), context)
-        self._retain_batch(item, bank_id=self._bank_id)
-        logger.debug("Tool hindsight_retain: success")
-        return "Memory stored successfully."
+        document_id = str(uuid4())
+        receipt = {"document_id": document_id, "bank_id": self._bank_id,
+                   "observation_consolidation": "not_confirmed"}
+        try:
+            response = self._retain_batch(item, bank_id=self._bank_id, document_id=document_id,
+                                          retain_async=False).model_dump(mode="json", by_alias=True, exclude_none=True)
+        except Exception as exc:
+            logger.warning("Explicit retain uncertain: document=%s: %s", document_id, exc)
+            return {**receipt, "status": "unknown", "error": str(exc),
+                    "instruction": "Inspect this document before retrying; do not submit a new copy."}
+        status = "unknown"
+        if response.get("success") is True:
+            status = "accepted" if response.get("async") else "retained"
+        elif response.get("success") is False:
+            status = "failed"
+        return {**response, **receipt, "status": status}
 
-    def _tool_recall(self, args: dict) -> str:
+    def _tool_recall(self, args: dict) -> dict:
         query = args["query"]
         logger.debug("Tool hindsight_recall: bank=%s, query_len=%d, budget=%s",
                      self._bank_id, len(query), self._budget)
-        results = self._recall(query)
-        logger.debug("Tool hindsight_recall: %d results", len(results))
-        return "\n".join(f"{i}. {r.text}" for i, r in enumerate(results, 1)) or "No relevant memories found."
+        response = self._recall(query, include_support=True).model_dump(mode="json", by_alias=True, exclude_none=True)
+        facts = response.get("source_facts") or {}
+        missing = sorted({fact_id for result in response["results"]
+                          for fact_id in (result.get("source_fact_ids") or []) if fact_id not in facts})
+        # Client 0.6.1 does not expose the server's source_facts_truncated flag.
+        response.update(missing_source_fact_ids=missing, support_completeness="unverified",
+                        authority="Historical attributed advice; resolve sources before relying on it. Missing or truncated support is not evidence of absence.")
+        return response
 
     def _tool_reflect(self, args: dict) -> str:
         query = args["query"]

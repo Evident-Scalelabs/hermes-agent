@@ -110,13 +110,14 @@ def _make_mock_client():
             results=[
                 SimpleNamespace(text="Memory 1"),
                 SimpleNamespace(text="Memory 2"),
-            ]
+            ],
+            model_dump=lambda **kw: {"results": [{"text": "Memory 1"}, {"text": "Memory 2"}]},
         )
     )
     client.areflect = AsyncMock(
         return_value=SimpleNamespace(text="Synthesized answer")
     )
-    client.aretain_batch = AsyncMock()
+    client.aretain_batch = AsyncMock(return_value=SimpleNamespace(model_dump=lambda **kw: {"success": True, "async": False}))
     client.aclose = AsyncMock()
     return client
 
@@ -473,7 +474,7 @@ class TestToolHandlers:
         result = json.loads(provider.handle_tool_call(
             "hindsight_retain", {"content": "user likes dark mode"}
         ))
-        assert result["result"] == "Memory stored successfully."
+        assert result["result"]["status"] == "retained"
         provider._client.aretain_batch.assert_called_once()
         call_kwargs = provider._client.aretain_batch.call_args.kwargs
         assert call_kwargs["bank_id"] == "test-bank"
@@ -483,13 +484,81 @@ class TestToolHandlers:
         assert "bank_id" not in item
         assert "retain_async" not in item
 
+
+    def test_explicit_retention_identity_and_uncertain_receipts(self, provider):
+        from uuid import UUID
+
+        for metadata in ({"session_id": "forged"}, {"platform": "forged"},
+                         {"retained_at": "forged"}, {"source": "forged"}, {"scan_id": 7}):
+            result = json.loads(provider.handle_tool_call("hindsight_retain", {"content": "lesson", "metadata": metadata}))
+            assert "error" in result
+        for key in ("bank_id", "document_id"):
+            assert "error" in json.loads(provider.handle_tool_call("hindsight_retain", {"content": "lesson", key: "forged"}))
+        provider._client.aretain_batch.assert_not_called()
+        args = {"content": "Assessment before submission; observation date unknown.",
+                "metadata": {"scan_id": "source-pointer", "status": "assessment"}}
+        result = json.loads(provider.handle_tool_call("hindsight_retain", args))["result"]
+        kw = provider._client.aretain_batch.call_args.kwargs
+        assert str(UUID(result["document_id"])) == kw["document_id"]
+        assert result["status"] == "retained"
+        assert result["observation_consolidation"] == "not_confirmed"
+        assert kw["bank_id"] == "test-bank" and kw["retain_async"] is False
+        assert kw["items"][0]["metadata"]["session_id"] == "test-session"
+        assert kw["items"][0]["metadata"]["status"] == "assessment"
+        assert "unknown" in kw["items"][0]["content"]
+        provider._client.aretain_batch.reset_mock()
+        provider._client.aretain_batch.side_effect = TimeoutError("uncertain")
+        result = json.loads(provider.handle_tool_call("hindsight_retain", args))["result"]
+        assert result["status"] == "unknown"
+        assert result["document_id"] == provider._client.aretain_batch.call_args.kwargs["document_id"]
+        provider._client.aretain_batch.assert_called_once()
+
+    def test_explicit_recall_preserves_native_attribution_with_bounded_support(self, provider):
+        sdk = pytest.importorskip("hindsight_client")
+        from hindsight_client_api.models.recall_response import RecallResponse
+        from hindsight_client_api.models.retain_response import RetainResponse
+
+        # Exercise the installed client's request builder and response model, not a second client.
+        client = sdk.Hindsight(base_url="http://localhost:9999", api_key="test-key")
+        payload = {"results": [{"id": "observation", "text": "Dated assessment", "type": "observation",
+                    "source_fact_ids": ["fact", "omitted"], "document_id": "lesson"}],
+                   "source_facts": {"fact": {"id": "fact", "text": "Inspected page", "type": "experience",
+                    "document_id": "lesson", "occurred_start": "2026-09-20T00:00:00Z", "metadata": {"status": "assessment"}}}}
+        response = RecallResponse.from_dict(payload)
+        client._memory_api.recall_memories = AsyncMock(return_value=response)
+        client._memory_api.retain_memories = AsyncMock(return_value=RetainResponse.from_dict({
+            "success": True, "bank_id": "test-bank", "items_count": 1, "async": False,
+            "usage": {"input_tokens": 8, "output_tokens": 2, "total_tokens": 10, "thoughts_tokens": 0}}))
+        provider._client = client
+        try:
+            result = json.loads(provider.handle_tool_call("hindsight_recall", {"query": "page"}))["result"]
+            assert result["results"][0]["source_fact_ids"] == ["fact", "omitted"]
+            assert result["source_facts"]["fact"]["document_id"] == "lesson"
+            assert result["source_facts"]["fact"]["occurred_start"].startswith("2026-09-20")
+            assert result["missing_source_fact_ids"] == ["omitted"]
+            assert result["support_completeness"] == "unverified"
+            request = client._memory_api.recall_memories.call_args.args[1]
+            assert request.include.source_facts.max_tokens == 1024
+            assert request.include.chunks is None and request.max_tokens == 4096
+            provider._do_recall("page")
+            automatic = client._memory_api.recall_memories.call_args.args[1]
+            assert automatic.include.source_facts is None
+            assert automatic.types == request.types and automatic.max_tokens == request.max_tokens
+            retained = json.loads(provider.handle_tool_call("hindsight_retain", {
+                "content": "Assessment with known date", "occurred_at": "2026-09-20", "metadata": {"status": "assessment"}}))["result"]
+            assert retained["status"] == "retained" and retained["usage"]["total_tokens"] == 10
+            request = client._memory_api.retain_memories.call_args.args[1]
+            assert request.items[0].document_id == retained["document_id"]
+        finally:
+            provider._run_sync(client.aclose())
+
     def test_retain_defaults_item_timestamp_when_no_occurred_at(self, provider, monkeypatch):
         event_time = datetime(2026, 8, 24, 9, 30, tzinfo=ZoneInfo("America/Los_Angeles"))
         monkeypatch.setattr("plugins.memory.hindsight._hermes_now", lambda: event_time)
         result = json.loads(provider.handle_tool_call(
             "hindsight_retain", {"content": "user likes dark mode"}
         ))
-        assert result["result"] == "Memory stored successfully."
+        assert result["result"]["status"] == "retained"
         item = provider._client.aretain_batch.call_args.kwargs["items"][0]
         # Non-temporal retains still carry a defaulted event timestamp so the
         # server can resolve any relative time phrases (#93568).
@@ -500,7 +569,7 @@ class TestToolHandlers:
             "hindsight_retain",
             {"content": "user visited Paris", "occurred_at": "2026-03-03"},
         ))
-        assert result["result"] == "Memory stored successfully."
+        assert result["result"]["status"] == "retained"
         item = provider._client.aretain_batch.call_args.kwargs["items"][0]
         assert item["timestamp"] == "2026-03-03"
 
@@ -532,8 +601,7 @@ class TestToolHandlers:
         result = json.loads(provider.handle_tool_call(
             "hindsight_recall", {"query": "dark mode"}
         ))
-        assert "Memory 1" in result["result"]
-        assert "Memory 2" in result["result"]
+        assert [r["text"] for r in result["result"]["results"]] == ["Memory 1", "Memory 2"]
 
 
     def test_reflect_success(self, provider):
@@ -555,7 +623,8 @@ class TestToolHandlers:
         first_client.arecall.side_effect = RuntimeError("Cannot connect to host 127.0.0.1:8888")
         second_client = _make_mock_client()
         second_client.arecall.return_value = SimpleNamespace(
-            results=[SimpleNamespace(text="Recovered memory")]
+            results=[SimpleNamespace(text="Recovered memory")],
+            model_dump=lambda **kw: {"results": [{"text": "Recovered memory"}]}
         )
         clients = iter([first_client, second_client])
 
@@ -567,7 +636,7 @@ class TestToolHandlers:
             "hindsight_recall", {"query": "test"}
         ))
 
-        assert result["result"] == "1. Recovered memory"
+        assert result["result"]["results"] == [{"text": "Recovered memory"}]
         assert provider._client is second_client
         first_client.arecall.assert_called_once()
         second_client.arecall.assert_called_once()
