@@ -48,7 +48,7 @@ def _clean_env(tmp_path, monkeypatch):
     """Ensure no stale env vars or Windows home state leak between tests."""
     for key in (
         "HINDSIGHT_API_KEY", "HINDSIGHT_API_URL", "HINDSIGHT_BANK_ID",
-        "HINDSIGHT_BUDGET", "HINDSIGHT_MODE", "HINDSIGHT_TIMEOUT",
+        "HINDSIGHT_BUDGET", "HINDSIGHT_MODE", "HINDSIGHT_TIMEOUT", "HINDSIGHT_RECALL_SYNC",
         "HINDSIGHT_IDLE_TIMEOUT", "HINDSIGHT_LLM_API_KEY",
         "HINDSIGHT_RETAIN_TAGS", "HINDSIGHT_RETAIN_OBSERVATION_SCOPES",
         "HINDSIGHT_RETAIN_SOURCE",
@@ -540,9 +540,10 @@ class TestToolHandlers:
             request = client._memory_api.recall_memories.call_args.args[1]
             assert request.include.source_facts.max_tokens == 1024
             assert request.include.chunks is None and request.max_tokens == 4096
-            provider._do_recall("page")
+            text, count = provider._do_recall("page")
+            assert count == len(result["results"]) and json.loads(text) == result
             automatic = client._memory_api.recall_memories.call_args.args[1]
-            assert automatic.include.source_facts is None
+            assert automatic.include.source_facts.max_tokens == 1024
             assert automatic.types == request.types and automatic.max_tokens == request.max_tokens
             retained = json.loads(provider.handle_tool_call("hindsight_retain", {
                 "content": "Assessment with known date", "occurred_at": "2026-09-20", "metadata": {"status": "assessment"}}))["result"]
@@ -663,7 +664,7 @@ class TestPrefetch:
 
         def _capture_recall(**kwargs):
             captured["query"] = kwargs.get("query", "")
-            return SimpleNamespace(results=[SimpleNamespace(text="fresh memory")])
+            return SimpleNamespace(results=[SimpleNamespace(text="fresh memory")], model_dump=lambda **kw: {"results": [{"text": "fresh memory"}]})
 
         p._client.arecall = AsyncMock(side_effect=_capture_recall)
 
@@ -709,7 +710,7 @@ class TestPrefetch:
 
         async def _recall(**kwargs):
             order.append("recall")
-            return SimpleNamespace(results=[SimpleNamespace(text="m")])
+            return SimpleNamespace(results=[SimpleNamespace(text="m")], model_dump=lambda **kw: {"results": [{"text": "m"}]})
 
         provider._client.aretain_batch = AsyncMock(side_effect=_slow_retain)
         provider._client.arecall = AsyncMock(side_effect=_recall)
@@ -798,7 +799,7 @@ class TestPrefetchServerRetainVisibility:
 
         async def _recall(**kwargs):
             order.append("recall")
-            return SimpleNamespace(results=[SimpleNamespace(text="m")])
+            return SimpleNamespace(results=[SimpleNamespace(text="m")], model_dump=lambda **kw: {"results": [{"text": "m"}]})
 
         provider._client = self._client_with_ops(["pending", "pending", "completed"])
         provider._client.arecall = AsyncMock(side_effect=_recall)
@@ -825,7 +826,7 @@ class TestPrefetchServerRetainVisibility:
 
         async def _recall(**kwargs):
             order.append("recall")
-            return SimpleNamespace(results=[SimpleNamespace(text="m")])
+            return SimpleNamespace(results=[SimpleNamespace(text="m")], model_dump=lambda **kw: {"results": [{"text": "m"}]})
 
         p._client = self._client_with_ops(["pending"])  # never completes
         p._client.arecall = AsyncMock(side_effect=_recall)
@@ -850,7 +851,7 @@ class TestPrefetchServerRetainVisibility:
         p = provider_with_config(prefetch_retain_drain_timeout=0.3)
         p._client = self._client_with_ops(["pending"])  # never completes
         p._client.arecall = AsyncMock(
-            return_value=SimpleNamespace(results=[SimpleNamespace(text="m")])
+            return_value=SimpleNamespace(results=[SimpleNamespace(text="m")], model_dump=lambda **kw: {"results": [{"text": "m"}]})
         )
 
         p.sync_turn("hello", "world")
@@ -936,7 +937,7 @@ class TestRecallStatus:
 
     def test_none_when_recall_returned_nothing(self, provider):
         provider._client.arecall = AsyncMock(
-            return_value=SimpleNamespace(results=[])
+            return_value=SimpleNamespace(results=[], model_dump=lambda **kw: {"results": []})
         )
         provider.queue_prefetch("test")
         if provider._prefetch_thread:
@@ -954,7 +955,7 @@ class TestRecallStatus:
 
         # Next turn recalls nothing — the prior count must not linger.
         provider._client.arecall = AsyncMock(
-            return_value=SimpleNamespace(results=[])
+            return_value=SimpleNamespace(results=[], model_dump=lambda **kw: {"results": []})
         )
         provider.queue_prefetch("test2")
         if provider._prefetch_thread:
@@ -1846,3 +1847,112 @@ def test_append_mode_trims_retained_turns_without_dropping_any(provider, monkeyp
     assert len(provider._session_turns) == 1  # only the un-retained tail (turn 7)
     assert provider._last_retained_turn_count == 0
     assert len(shipped) == 6 and len(set(shipped)) == 6
+
+
+def test_sync_bridge_is_profile_scoped_and_first_turn(tmp_path, monkeypatch):
+    from agent.memory_manager import MemoryManager
+    from agent.secret_scope import set_secret_scope, reset_secret_scope
+    monkeypatch.setattr("agent.secret_scope._MULTIPLEX_ACTIVE", True)
+    monkeypatch.setenv("HINDSIGHT_RECALL_SYNC", "true")  # Must not leak into a scoped standalone session.
+    for profile, sync in (("A", True), ("B", False), ("A", True)):
+        home = tmp_path / profile
+        home.mkdir(exist_ok=True)
+        monkeypatch.setenv("HERMES_HOME", str(home))
+        scope = {"HINDSIGHT_MODE": "local_external", "HINDSIGHT_API_URL": "http://localhost:9999",
+                 "HINDSIGHT_BANK_ID": profile}
+        if sync:
+            scope["HINDSIGHT_RECALL_SYNC"] = "true"
+        token = set_secret_scope(scope)
+        p = HindsightMemoryProvider()
+        try:
+            p.initialize(session_id="fresh", hermes_home=str(home))
+            p._client = _make_mock_client()
+            manager = MemoryManager()
+            manager.add_provider(p)
+            text = manager.prefetch_all("What prior page findings should inform this assessment?")
+            assert bool(text) == sync
+            if sync:
+                assert "Memory 1" in text and "historical advice" in text
+                assert p._client.arecall.call_args.kwargs["bank_id"] == profile
+                p.queue_prefetch("completed turn")
+                assert p._client.arecall.call_count == 1
+            else:
+                p._client.arecall.assert_not_called()
+                p.queue_prefetch("completed turn")
+                p._join_prefetch(3)
+                assert "Memory 1" in manager.prefetch_all("next turn")
+        finally:
+            p.shutdown()
+            reset_secret_scope(token)
+        assert not (home / "hindsight/config.json").exists()
+
+
+@pytest.mark.parametrize("failure", [None, PermissionError, TimeoutError, TypeError])
+def test_recall_failure_is_distinct_from_empty_and_sanitized(provider_with_config, caplog, failure):
+    p = provider_with_config(recall_sync=True)
+    if failure is TypeError:
+        p._client.arecall.return_value = SimpleNamespace(model_dump=lambda **kw: {"results": None})
+    elif failure:
+        p._client.arecall.side_effect = failure("secret=do-not-log")
+    else:
+        p._client.arecall.return_value = SimpleNamespace(model_dump=lambda **kw: {"results": []})
+    try:
+        with caplog.at_level("WARNING"):
+            assert p.prefetch("Assess earlier findings") == ""
+        assert p.recall_status() is None
+        assert ("recall unavailable" in caplog.text) == bool(failure)
+        assert "do-not-log" not in caplog.text
+        explicit = json.loads(p.handle_tool_call("hindsight_recall", {"query": "findings"}))
+        assert ("error" in explicit) == bool(failure)
+        assert "do-not-log" not in json.dumps(explicit)
+        if failure:
+            assert failure.__name__ in caplog.text
+        p._client.arecall.assert_called_with(bank_id="test-bank", query="findings", budget="mid",
+            max_tokens=4096, types=["observation"], include_source_facts=True, max_source_facts_tokens=1024)
+    finally:
+        p.shutdown()
+
+
+def test_memory_reaches_first_model_request_once_across_tool_rounds(provider, tmp_path, monkeypatch):
+    from unittest.mock import patch
+    from openai.types.chat import ChatCompletion
+    from agent.memory_manager import MemoryManager
+    from run_agent import AIAgent
+
+    provider._recall_sync = True
+    source = tmp_path / 'source.txt'
+    source.write_text('Current source evidence')
+    requests = []
+
+    def complete(**request):
+        requests.append(request)
+        assert 'Memory 1' in json.dumps(request['messages'])
+        assert provider._client.arecall.call_count == 1
+        message = {'role': 'assistant', 'content': 'Verified assessment'}
+        if len(requests) < 3:
+            message = {'role': 'assistant', 'content': None, 'tool_calls': [{
+                'id': f'read-{len(requests)}', 'type': 'function',
+                'function': {'name': 'read_file', 'arguments': json.dumps({'path': str(source)})}}]}
+        return ChatCompletion(id='test', created=0, model='test/model', object='chat.completion',
+            choices=[{'index': 0, 'message': message, 'finish_reason': 'tool_calls' if len(requests) < 3 else 'stop'}])
+
+    with patch('agent.process_bootstrap.OpenAI') as client:
+        client.return_value.chat.completions.create.side_effect = complete
+        agent = AIAgent(api_key='test-key', base_url='http://localhost:9999/v1',
+            model='test/model', provider='custom', quiet_mode=True, skip_context_files=True,
+            skip_memory=True, enabled_toolsets=['file'], max_iterations=4)
+        agent._cached_system_prompt = 'Use sources to assess the page.'
+        agent.compression_enabled = False
+        agent.save_trajectories = False
+        native_client = provider._client
+        manager = MemoryManager()
+        manager.add_provider(provider)
+        agent._memory_manager = manager
+        try:
+            result = agent.run_conversation('Assess this page using prior findings and the current source.')
+            assert result['completed'] and result['final_response'] == 'Verified assessment'
+            assert len(requests) == 3
+            assert all(r['messages'][0] == requests[0]['messages'][0] for r in requests)
+        finally:
+            agent.close()
+        assert native_client.aretain.called or native_client.aretain_batch.called
