@@ -230,9 +230,15 @@ class TestPickerIntegration:
         _ensure_plugins_loaded()
         from hermes_cli.tools_config import _plugin_browser_providers
 
+        from agent.browser_registry import list_providers
+
         rows = _plugin_browser_providers()
         names = sorted(r.get("browser_provider") for r in rows)
-        assert names == ["browserbase", "firecrawl"]
+        # Picker rows are exactly the registered plugins that expose a setup schema.
+        expected = sorted(
+            p.name for p in list_providers() if p.get_setup_schema() is not None
+        )
+        assert names and names == expected
 
 
 

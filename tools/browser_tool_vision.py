@@ -78,6 +78,7 @@ def _native_vision_result(
         meta["fallback_warning"] = lp_fallback_warning
     if annotate and result.get("data", {}).get("annotations"):
         meta["annotations"] = result["data"]["annotations"]
+    native_result["content"].append({"type": "text", "text": f"Screenshot path: {screenshot_path}"})
     native_result["text_summary"] = f"{native_result.get('text_summary', '')} Screenshot path: {screenshot_path}".strip()
     return native_result
 

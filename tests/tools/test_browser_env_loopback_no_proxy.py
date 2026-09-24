@@ -44,7 +44,7 @@ NO_PROXIES = {"proxies": {"http": None, "https": None}}
     ("ws://localhost:9222/devtools/browser/abc", {"proxy": None}, NO_PROXIES),
     ("ws://[::1]:9222/devtools/browser/abc", {"proxy": None}, NO_PROXIES),
     ("http://127.0.0.2:9222", {"proxy": None}, NO_PROXIES),
-    ("http://[::ffff:127.0.0.1]:9222", {}, {}),
+    ("http://[::ffff:127.0.0.1]:9222", {"proxy": None}, NO_PROXIES),
     ("ws://localhost.evil.com:9222/devtools/browser/abc", {}, {}),
     ("wss://connect.browserbase.com/cdp?apiKey=x", {}, {}),
 ])
