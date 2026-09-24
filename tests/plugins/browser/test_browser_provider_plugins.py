@@ -235,3 +235,36 @@ class TestPickerIntegration:
         assert names == ["browserbase", "firecrawl"]
 
 
+
+
+@pytest.mark.parametrize("plugin_name", ["browserbase", "firecrawl"])
+def test_cloud_sessions_with_long_task_ids_can_bind_agent_browser_socket(plugin_name, monkeypatch):
+    import shutil
+    import socket
+    from pathlib import Path
+    from unittest.mock import Mock
+    from agent.browser_registry import get_provider
+    from tools.browser_tool_session import _prepare_session_socket_dir
+
+    _ensure_plugins_loaded()
+    monkeypatch.setenv("BROWSERBASE_API_KEY", "test-key")
+    monkeypatch.setenv("BROWSERBASE_PROJECT_ID", "test-project")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "test-key")
+    response = Mock(status_code=201)
+    response.json.return_value = {"id": "remote-id", "cdpUrl": "wss://example.com/cdp", "connectUrl": "wss://example.com/cdp"}
+    monkeypatch.setattr("requests.post", Mock(return_value=response))
+    provider = get_provider(plugin_name)
+    task_id = "9e33d03d-afb7-4824-8aae-a40fd6f36d3b"
+    sessions = [provider.create_session(task_id) for _ in range(2)]
+    assert sessions[0]["session_name"] != sessions[1]["session_name"]
+    for session in sessions:
+        name = session["session_name"]
+        socket_dir = _prepare_session_socket_dir(name)
+        try:
+            socket_path = str(Path(socket_dir) / f"{name}.sock")
+            # agent-browser enforces the portable 103-byte limit before binding.
+            assert len(socket_path.encode()) <= 103
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.bind(socket_path)
+        finally:
+            shutil.rmtree(socket_dir)

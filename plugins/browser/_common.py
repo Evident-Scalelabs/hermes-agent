@@ -74,7 +74,8 @@ class CloudBrowserProvider(BrowserProvider):
 
     @staticmethod
     def _session_name(task_id: str) -> str:
-        return f"hermes_{task_id}_{uuid.uuid4().hex[:8]}"
+        # The name appears twice in the agent-browser socket path; task IDs can be long.
+        return f"h_{uuid.uuid4().hex[:16]}"
 
     def _post_create(
         self, url: str, headers: Dict[str, str], payload: Dict[str, object], *, wrap_errors: bool = True
