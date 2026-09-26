@@ -579,6 +579,10 @@ BROWSER_TOOL_SCHEMAS = [
                     "type": "boolean",
                     "default": False,
                     "description": "If true, overlay numbered [N] labels on interactive elements. Each [N] maps to ref @eN for subsequent browser commands. Useful for QA and spatial reasoning about page layout."
+                },
+                "full_page": {
+                    "type": "boolean", "default": True,
+                    "description": "With agent-browser, false captures the current viewport at its current scroll position; true captures the full page."
                 }
             },
             "required": ["question"]
@@ -1205,13 +1209,13 @@ _LP_VISION_FALLBACK_REASON = "Lightpanda has no graphical renderer for screensho
 from tools import browser_tool_vision as _vision
 
 
-def _capture_vision_screenshot(effective_task_id: str, annotate: bool, screenshot_path: Path, lp_prerouted: bool):
+def _capture_vision_screenshot(effective_task_id: str, annotate: bool, screenshot_path: Path, lp_prerouted: bool, full_page: bool = True):
     """Take (or adopt the pre-routed) screenshot; returns ``(result, path, error_json_or_None)``."""
     if lp_prerouted and screenshot_path.exists():
         result = _lp._annotate_lightpanda_fallback(
             {"success": True, "data": {"path": str(screenshot_path)}}, _LP_VISION_FALLBACK_REASON)
     else:
-        screenshot_args = (["--annotate"] if annotate else []) + ["--full", str(screenshot_path)]
+        screenshot_args = (["--annotate"] if annotate else []) + (["--full"] if full_page else []) + [str(screenshot_path)]
         # A failed Lightpanda pre-route forces Chrome so _run_browser_command
         # doesn't trigger a redundant LP fallback.
         result = _session._run_browser_command(effective_task_id, "screenshot", screenshot_args,
@@ -1232,12 +1236,17 @@ def _capture_vision_screenshot(effective_task_id: str, annotate: bool, screensho
     return result, screenshot_path, None
 
 
-def browser_vision(question: str, annotate: bool = False, task_id: Optional[str] = None) -> Union[str, Dict[str, Any]]:
+def browser_vision(question: str, annotate: bool = False, task_id: Optional[str] = None, full_page: bool = True) -> Union[str, Dict[str, Any]]:
     """Screenshot the current page for visual inspection. Native-vision models get the image
     attached to the conversation; otherwise the auxiliary vision model returns a text
     analysis. The file is kept and its path returned (MEDIA:<path>)."""
     if _is_camofox_mode():
+        if not full_page:
+            return _dumps(_err("Viewport-only capture is unavailable through the Camofox vision adapter."))
         return _camofox("camofox_vision", question, annotate, task_id)
+
+    if not full_page and _cloud._get_browser_engine() == "lightpanda" and _cloud._should_inject_engine("lightpanda"):
+        return _dumps(_err("Viewport-only capture requires a graphical browser; Lightpanda fallback cannot preserve the current view."))
 
     import uuid as uuid_mod
     from hermes_constants import get_hermes_dir
@@ -1255,7 +1264,7 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
         screenshots_dir.mkdir(parents=True, exist_ok=True)
         _lifecycle._cleanup_old_screenshots(screenshots_dir, max_age_hours=24)
         result, screenshot_path, error = _capture_vision_screenshot(
-            effective_task_id, annotate, screenshot_path, _lp_prerouted)
+            effective_task_id, annotate, screenshot_path, _lp_prerouted, full_page=full_page)
         if error is not None:
             return error
         # Native image routing: attach the screenshot directly instead of describing it
@@ -1321,7 +1330,7 @@ _BROWSER_TOOL_TABLE = (
     ("browser_back", "◀️", None, {}),
     ("browser_press", "⌨️", None, {"key": ""}),
     ("browser_get_images", "🖼️", _install.check_browser_requirements, {}),
-    ("browser_vision", "👁️", _install.check_browser_vision_requirements, {"question": "", "annotate": False}),
+    ("browser_vision", "👁️", _install.check_browser_vision_requirements, {"question": "", "annotate": False, "full_page": True}),
     ("browser_console", "🖥️", _install.check_browser_requirements, {"clear": False, "expression": None}),
 )
 
