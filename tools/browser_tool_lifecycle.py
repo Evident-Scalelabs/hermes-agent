@@ -329,7 +329,11 @@ def _close_orphan_tab(socket_dir: str, session_name: str) -> bool:
     try:
         binary = _install._find_agent_browser(validate=False)
         argv = _session._agent_browser_argv(binary) + ["--session", session_name, "--pin-tab", "--json", "tab", "close"]
-        proc = _session._popen_agent_browser(argv, _session._agent_browser_command_env(socket_dir), socket_dir, "orphan-close")
+        env = _session._agent_browser_command_env(socket_dir)
+        # PM supplies the executable for launches. On this follow-up command it
+        # would make agent-browser replace the owned CDP connection with a local browser.
+        env.pop("AGENT_BROWSER_EXECUTABLE_PATH", None)
+        proc = _session._popen_agent_browser(argv, env, socket_dir, "orphan-close")
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
