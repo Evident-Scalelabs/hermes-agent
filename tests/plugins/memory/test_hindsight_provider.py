@@ -50,7 +50,7 @@ def _clean_env(tmp_path, monkeypatch):
         "HINDSIGHT_API_KEY", "HINDSIGHT_API_URL", "HINDSIGHT_BANK_ID",
         "HINDSIGHT_BUDGET", "HINDSIGHT_MODE", "HINDSIGHT_TIMEOUT", "HINDSIGHT_RECALL_SYNC",
         "HINDSIGHT_IDLE_TIMEOUT", "HINDSIGHT_LLM_API_KEY",
-        "HINDSIGHT_AUTO_RETAIN", "HINDSIGHT_RECALL_TAGS", "HINDSIGHT_RECALL_TAGS_MATCH",
+        "HINDSIGHT_BANK_ENABLED", "HINDSIGHT_AUTO_RETAIN", "HINDSIGHT_RECALL_TAGS", "HINDSIGHT_RECALL_TAGS_MATCH",
         "HINDSIGHT_RETAIN_TAGS", "HINDSIGHT_RETAIN_OBSERVATION_SCOPES",
         "HINDSIGHT_RETAIN_SOURCE",
         "HINDSIGHT_RETAIN_USER_PREFIX", "HINDSIGHT_RETAIN_ASSISTANT_PREFIX",
@@ -1937,3 +1937,18 @@ def test_scoped_retention_and_all_readers_keep_site_boundary(tmp_path, monkeypat
             reset_secret_scope(token)
     with ThreadPoolExecutor() as pool:
         list(pool.map(run, [True, False, True, False]))
+
+
+def test_bank_disabled_admission_is_scoped_and_has_visible_reason(tmp_path, monkeypatch):
+    from agent.secret_scope import set_secret_scope, reset_secret_scope
+    monkeypatch.setattr("agent.secret_scope._MULTIPLEX_ACTIVE", True)
+    monkeypatch.setattr("plugins.memory.hindsight.get_hermes_home", lambda: tmp_path)
+    for enabled in (False, True, False):
+        token = set_secret_scope({"HINDSIGHT_MODE": "local_external", "HINDSIGHT_API_URL": "https://memory.example",
+                                  "HINDSIGHT_BANK_ENABLED": str(enabled).lower()})
+        try:
+            p = HindsightMemoryProvider()
+            assert p.is_available() is enabled
+            assert bool(p.unavailable_reason()) is (not enabled)
+        finally:
+            reset_secret_scope(token)

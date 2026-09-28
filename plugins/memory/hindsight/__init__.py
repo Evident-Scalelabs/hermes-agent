@@ -255,7 +255,8 @@ def _load_config() -> dict:
         "retain_user_prefix": _scoped_setting("HINDSIGHT_RETAIN_USER_PREFIX", "User"),
         "retain_assistant_prefix": _scoped_setting("HINDSIGHT_RETAIN_ASSISTANT_PREFIX", "Assistant"),
         "banks": {"hermes": {"bankId": get_secret("HINDSIGHT_BANK_ID", "") or "hermes",
-                             "budget": os.environ.get("HINDSIGHT_BUDGET", "mid"), "enabled": True}},
+                             "budget": os.environ.get("HINDSIGHT_BUDGET", "mid"),
+                             "enabled": get_secret("HINDSIGHT_BANK_ENABLED", "") != "false"}},
     }
 
 
@@ -356,6 +357,8 @@ class HindsightMemoryProvider(MemoryProvider):
     def is_available(self) -> bool:
         try:
             cfg = _load_config()
+            if cfg_get(cfg, "banks", "hermes", default={}).get("enabled", True) is False:
+                return False
             mode = cfg.get("mode", "cloud")
             if mode in _LOCAL_MODES:
                 return _check_local_runtime()[0]
@@ -373,7 +376,10 @@ class HindsightMemoryProvider(MemoryProvider):
         guidance here, where agent_init warns about an unavailable provider.
         """
         try:
-            if _load_config().get("mode", "cloud") not in _LOCAL_MODES:
+            cfg = _load_config()
+            if cfg_get(cfg, "banks", "hermes", default={}).get("enabled", True) is False:
+                return "Memory bank disabled for this run; configuration admission is unavailable."
+            if cfg.get("mode", "cloud") not in _LOCAL_MODES:
                 return ""
         except Exception:
             return ""
