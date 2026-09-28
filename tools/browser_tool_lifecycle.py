@@ -292,7 +292,7 @@ def _socket_dir_idle_seconds(socket_dir: str) -> Optional[float]:
 def _read_pid_file(path: str) -> Optional[int]:
     """Integer PID from ``path``; None when missing or corrupt."""
     try:
-        return int(Path(path).read_text(encoding="utf-8").strip())
+        return int(Path(path).read_text(encoding="utf-8-sig").strip())
     except (ValueError, OSError):
         return None
 
@@ -329,7 +329,11 @@ def _close_orphan_tab(socket_dir: str, session_name: str) -> bool:
     try:
         binary = _install._find_agent_browser(validate=False)
         argv = _session._agent_browser_argv(binary) + ["--session", session_name, "--pin-tab", "--json", "tab", "close"]
-        proc = _session._popen_agent_browser(argv, _session._agent_browser_command_env(socket_dir), socket_dir, "orphan-close")
+        env = _session._agent_browser_command_env(socket_dir)
+        # PM supplies the executable for launches. On this follow-up command it
+        # would make agent-browser replace the owned CDP connection with a local browser.
+        env.pop("AGENT_BROWSER_EXECUTABLE_PATH", None)
+        proc = _session._popen_agent_browser(argv, env, socket_dir, "orphan-close")
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
@@ -644,7 +648,7 @@ def _kill_verified_daemon(socket_dir: str, session_name: str) -> bool:
     if not os.path.isfile(pid_file):
         return False
     try:
-        daemon_pid = int(Path(pid_file).read_text(encoding="utf-8").strip())
+        daemon_pid = int(Path(pid_file).read_text(encoding="utf-8-sig").strip())
         if not _verify_reapable_browser_daemon(daemon_pid, socket_dir, session_name):
             _bt.logger.debug("Skipped daemon kill for %s: pid %s failed identity verification", session_name, daemon_pid)
             return False
@@ -784,13 +788,12 @@ def cleanup_all_browsers() -> None:
         pass
 
     _install._discover_homebrew_node_dirs.cache_clear()
+    _bt._chromium_autoinstall_attempted = False
     # Each resolved flag flips BEFORE its cache is nulled so a concurrent reader never
     # sees ``resolved=True`` with ``cache=None``.
     for flag, cache in (
-        ("_agent_browser_resolved", "_cached_agent_browser"),
         ("_command_timeout_resolved", "_cached_command_timeout"),
         ("_snapshot_threshold_resolved", "_cached_snapshot_threshold"),
-        ("_chromium_autoinstall_attempted", "_cached_chromium_installed"),
         ("_browser_engine_resolved", "_cached_browser_engine"),
     ):
         setattr(_bt, flag, False)

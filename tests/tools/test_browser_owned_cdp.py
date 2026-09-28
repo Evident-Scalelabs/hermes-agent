@@ -71,7 +71,7 @@ def test_retired_camofox_cannot_select_another_controller(monkeypatch, tmp_path,
 @pytest.mark.live_system_guard_bypass  # Verified daemons detach from their short-lived CLI parent.
 @pytest.mark.skipif(os.environ.get('HERMES_E2E_BROWSER') != '1', reason='set HERMES_E2E_BROWSER=1')
 def test_real_cdp_tasks_own_tabs_supervisors_and_daemons(monkeypatch):
-    chrome_path = shutil.which('google-chrome') or shutil.which('chromium')
+    chrome_path = os.environ.get('AGENT_BROWSER_EXECUTABLE_PATH') or shutil.which('google-chrome') or shutil.which('chromium')
     if not chrome_path and Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome').is_file():
         chrome_path = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     if not chrome_path or not shutil.which('agent-browser'):
@@ -90,7 +90,10 @@ def test_real_cdp_tasks_own_tabs_supervisors_and_daemons(monkeypatch):
         monkeypatch.setattr(bt, '_active_sessions', {})
         monkeypatch.setattr(bt, '_last_active_session_key', {})
         profile = root / 'chrome'
-        proc = subprocess.Popen([chrome_path, '--headless=new', '--remote-debugging-port=0',
+        # Disposable root containers need Chromium's explicit sandbox opt-out.
+        launch_args = ['--no-sandbox'] if os.name == 'posix' and os.geteuid() == 0 else []
+        monkeypatch.setenv('AGENT_BROWSER_EXECUTABLE_PATH', chrome_path)
+        proc = subprocess.Popen([chrome_path, *launch_args, '--headless=new', '--remote-debugging-port=0',
                                  f'--user-data-dir={profile}', '--no-first-run', 'about:blank'],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
@@ -118,6 +121,38 @@ def test_real_cdp_tasks_own_tabs_supervisors_and_daemons(monkeypatch):
                 assert supervisor.target_id == info['_cdp_target_id']
                 assert supervisor.evaluate_runtime('document.title')['result'] == task
                 assert (root / f"agent-browser-{info['session_name']}" / f"{info['session_name']}.pid").exists()
+            # Serve synthetic content locally to exercise the registered screenshot path.
+            from functools import partial
+            from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+            from threading import Thread
+            from PIL import Image
+            from tools.registry import registry
+            from tools.url_safety import _reset_allow_private_cache
+            monkeypatch.setenv('HERMES_ALLOW_PRIVATE_URLS', 'true')
+            _reset_allow_private_cache()
+            monkeypatch.setattr('tools.vision_tools._should_use_native_vision_fast_path', lambda: True)
+            (root / 'viewport.html').write_text('<title>owner-a</title><div style="height:2400px">Viewport evidence</div>')
+            server = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=str(root)))
+            Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                assert session.run_browser_command('owner-a', 'open', [
+                    f'http://127.0.0.1:{server.server_port}/viewport.html'
+                ])['success']
+                heights, paths = [], []
+                for full in (False, True):
+                    shot = registry.dispatch('browser_vision', {'question': 'Inspect', 'full_page': full}, task_id='owner-a')
+                    assert isinstance(shot, dict), shot
+                    path = Path(shot['meta']['screenshot_path'])
+                    assert any(str(path) in block.get('text', '') for block in shot['content'])
+                    with Image.open(path) as image:
+                        heights.append(image.height)
+                    paths.append(path)
+                assert heights[0] < heights[1] and heights[1] >= 2400
+                assert all(path.is_file() for path in paths)
+            finally:
+                server.shutdown()
+                server.server_close()
+                _reset_allow_private_cache()
             # Timeout replacement keeps the same owned tab; another task remains unaffected.
             socket = root / f"agent-browser-{a['session_name']}"
             session._discard_timed_out_browser_session('owner-a', a, str(socket))
