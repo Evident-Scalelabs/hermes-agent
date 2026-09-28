@@ -246,6 +246,9 @@ def _load_config() -> dict:
         "idle_timeout": _parse_int_setting(os.environ.get("HINDSIGHT_IDLE_TIMEOUT"), _DEFAULT_IDLE_TIMEOUT),
         # Internal oneshot transport of the existing native setting; never persisted.
         "recall_sync": get_secret("HINDSIGHT_RECALL_SYNC", "") == "true",
+        "auto_retain": get_secret("HINDSIGHT_AUTO_RETAIN", "") != "false",
+        "recall_tags": _normalize_retain_tags(get_secret("HINDSIGHT_RECALL_TAGS", "")),
+        "recall_tags_match": get_secret("HINDSIGHT_RECALL_TAGS_MATCH", "") or "any",
         "retain_tags": get_secret("HINDSIGHT_RETAIN_TAGS", "") or "",
         "observation_scopes": get_secret("HINDSIGHT_RETAIN_OBSERVATION_SCOPES", "") or "",
         "retain_source": _scoped_setting("HINDSIGHT_RETAIN_SOURCE", _DEFAULT_RETAIN_SOURCE),
@@ -878,9 +881,12 @@ class HindsightMemoryProvider(MemoryProvider):
         return response
 
     def _reflect(self, query: str) -> str | None:
-        resp = self._run_hindsight_operation(
-            lambda client: client.areflect(bank_id=self._bank_id, query=query, budget=self._budget)
-        )
+        kwargs: dict = {"bank_id": self._bank_id, "query": query, "budget": self._budget}
+        if self._recall_tags:
+            # Reflection must not bypass the same boundary as ordinary recall.
+            kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match,
+                          exclude_mental_models=True)
+        resp = self._run_hindsight_operation(lambda client: client.areflect(**kwargs))
         return resp.text
 
     def _do_recall(self, query: str) -> tuple[str, int]:

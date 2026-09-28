@@ -50,6 +50,7 @@ def _clean_env(tmp_path, monkeypatch):
         "HINDSIGHT_API_KEY", "HINDSIGHT_API_URL", "HINDSIGHT_BANK_ID",
         "HINDSIGHT_BUDGET", "HINDSIGHT_MODE", "HINDSIGHT_TIMEOUT", "HINDSIGHT_RECALL_SYNC",
         "HINDSIGHT_IDLE_TIMEOUT", "HINDSIGHT_LLM_API_KEY",
+        "HINDSIGHT_AUTO_RETAIN", "HINDSIGHT_RECALL_TAGS", "HINDSIGHT_RECALL_TAGS_MATCH",
         "HINDSIGHT_RETAIN_TAGS", "HINDSIGHT_RETAIN_OBSERVATION_SCOPES",
         "HINDSIGHT_RETAIN_SOURCE",
         "HINDSIGHT_RETAIN_USER_PREFIX", "HINDSIGHT_RETAIN_ASSISTANT_PREFIX",
@@ -1895,3 +1896,44 @@ def test_memory_reaches_first_model_request_once_across_tool_rounds(provider, tm
         finally:
             agent.close()
         assert native_client.aretain.called or native_client.aretain_batch.called
+
+
+def test_scoped_retention_and_all_readers_keep_site_boundary(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from agent.secret_scope import set_secret_scope, reset_secret_scope
+    monkeypatch.setattr("agent.secret_scope._MULTIPLEX_ACTIVE", True)
+    monkeypatch.setattr("plugins.memory.hindsight.get_hermes_home", lambda: tmp_path)
+    monkeypatch.setenv("HINDSIGHT_AUTO_RETAIN", "false")
+    def run(factor):
+        scope = {"HINDSIGHT_MODE": "local_external", "HINDSIGHT_API_URL": "http://localhost:9999",
+                 "HINDSIGHT_BANK_ID": "site" if factor else "chat", "HINDSIGHT_RECALL_SYNC": "true"}
+        if factor:
+            scope.update(HINDSIGHT_AUTO_RETAIN="false", HINDSIGHT_RECALL_TAGS="scope:site",
+                         HINDSIGHT_RECALL_TAGS_MATCH="all_strict")
+        token = set_secret_scope(scope)
+        p = HindsightMemoryProvider()
+        try:
+            p.initialize(session_id="fresh", hermes_home=str(tmp_path))
+            p._client = _make_mock_client()
+            p._enqueue_retain = MagicMock()
+            p.sync_turn('{"rubric":"task scaffolding"}', "submitted")
+            assert p._enqueue_retain.called is (not factor)
+            p.prefetch("prior experience")
+            p.handle_tool_call("hindsight_recall", {"query": "prior experience"})
+            p.handle_tool_call("hindsight_reflect", {"query": "prior experience"})
+            for call in [*p._client.arecall.call_args_list, *p._client.areflect.call_args_list]:
+                assert call.kwargs["bank_id"] == ("site" if factor else "chat")
+                if factor:
+                    assert call.kwargs["tags"] == ["scope:site"]
+                    assert call.kwargs["tags_match"] == "all_strict"
+                else:
+                    assert "tags" not in call.kwargs
+            if factor:
+                assert p._client.areflect.call_args.kwargs["exclude_mental_models"] is True
+            receipt = json.loads(p.handle_tool_call("hindsight_retain", {"content": "Observed field-linked errors"}))
+            assert receipt["result"]["status"] == "retained"
+        finally:
+            p.shutdown()
+            reset_secret_scope(token)
+    with ThreadPoolExecutor() as pool:
+        list(pool.map(run, [True, False, True, False]))
