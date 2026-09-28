@@ -874,6 +874,13 @@ def _dispatch_browser_command(
             session_info["_cdp_target_id"] = target_id
             session_info["_cdp_tab_initialized"] = True
             _cdp._ensure_cdp_supervisor(task_id)
+        if command == "screenshot" and session_info.get("cdp_url"):
+            # Chromium can stall capture of a background tab in a shared browser.
+            focused = _spawn_and_collect(task_id, session_info,
+                                          argv + backend_args + ["--json", "tab", session_info["_cdp_target_id"]],
+                                          "tab", engine, timeout)
+            if not focused.get("success"):
+                return engine, focused
         result = _unwrap_batch_result(
             _spawn_and_collect(task_id, session_info, cmd_parts, command, engine, timeout, stdin_payload), command)
     except Exception as e:

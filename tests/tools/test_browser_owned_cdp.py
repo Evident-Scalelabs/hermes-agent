@@ -141,6 +141,7 @@ def test_real_cdp_tasks_own_tabs_supervisors_and_daemons(monkeypatch):
                 heights, paths = [], []
                 for full in (False, True):
                     shot = registry.dispatch('browser_vision', {'question': 'Inspect', 'full_page': full}, task_id='owner-a')
+                    assert isinstance(shot, dict), shot
                     path = Path(shot['meta']['screenshot_path'])
                     assert any(str(path) in block.get('text', '') for block in shot['content'])
                     with Image.open(path) as image:
