@@ -169,3 +169,7 @@ recall and conversation retention/append behavior are unchanged.
 ## Client Version
 
 Requires `hindsight-client >= 0.6.1`. The plugin auto-upgrades on session start if an older version is detected.
+
+### Checking original experience
+
+`hindsight_recall(query="...", view="sources")` retrieves world/experience facts and original chunks in the configured bank and tag scope. It bounds facts to 4,096 tokens and chunks to 2,048; missing chunks and unlinked results are explicit. Returned support remains unverified, including when the pinned SDK cannot expose native truncation flags. Preserve observation dates, mentioned dates and the source's qualifications. An omitted view keeps existing recall behavior; automatic recall is unchanged. The tool cannot override bank, tags or fact types.

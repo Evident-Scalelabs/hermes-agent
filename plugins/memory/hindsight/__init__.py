@@ -215,7 +215,11 @@ RECALL_SCHEMA = {
         "semantic search, keyword matching, entity graph traversal, and reranking."
     ),
     "parameters": {"type": "object", "required": ["query"],
-                   "properties": {"query": {"type": "string", "description": "What to search for."}}},
+                   "properties": {
+                       "query": {"type": "string", "description": "What to search for."},
+                       "view": {"type": "string", "enum": ["default", "sources"],
+                                "description": "default preserves configured recall; sources returns original facts and bounded source chunks in the same scope for checking qualifications."},
+                   }},
 }
 
 REFLECT_SCHEMA = {
@@ -869,13 +873,16 @@ class HindsightMemoryProvider(MemoryProvider):
             logger.debug("Prefetch: skipped (%s)", why)
         return why is not None
 
-    def _recall(self, query: str) -> dict:
+    def _recall(self, query: str, *, sources: bool = False) -> dict:
         kwargs: dict = {"bank_id": self._bank_id, "query": query, "budget": self._budget, "max_tokens": self._recall_max_tokens}
         if self._recall_tags:
             kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match)
         if self._recall_types:
             kwargs["types"] = self._recall_types
         kwargs.update(include_source_facts=True, max_source_facts_tokens=1024)
+        if sources:
+            kwargs.update(types=["world", "experience"], max_tokens=4096,
+                          include_chunks=True, max_chunk_tokens=2048)
         resp = self._run_hindsight_operation(lambda client: client.arecall(**kwargs))
         response = resp.model_dump(mode="json", by_alias=True, exclude_none=True)
         facts = response.get("source_facts") or {}
@@ -884,6 +891,18 @@ class HindsightMemoryProvider(MemoryProvider):
         # Client 0.6.1 does not expose the server's source_facts_truncated flag.
         response.update(missing_source_fact_ids=missing, support_completeness="unverified",
                         authority="Historical attributed advice; resolve sources before relying on it. Missing or truncated support is not evidence of absence.")
+        if sources:
+            chunks = response.get("chunks") or {}
+            response.update(
+                view="sources", source_chunk_budget_tokens=2048,
+                # The pinned SDK cannot expose all native truncation flags. Even
+                # a returned chunk needs interpretation against its original scope.
+                source_support_status="unverified",
+                missing_chunk_ids=sorted({r["chunk_id"] for r in response["results"]
+                                          if r.get("chunk_id") and r["chunk_id"] not in chunks}),
+                unlinked_result_ids=[r.get("id") for r in response["results"]
+                                     if not r.get("document_id") or not r.get("chunk_id")],
+            )
         return response
 
     def _reflect(self, query: str) -> str | None:
@@ -1132,7 +1151,12 @@ class HindsightMemoryProvider(MemoryProvider):
         query = args["query"]
         logger.debug("Tool hindsight_recall: bank=%s, query_len=%d, budget=%s",
                      self._bank_id, len(query), self._budget)
-        return self._recall(query)
+        view = args.get("view", "default")
+        if view not in ("default", "sources"):
+            raise ValueError("view must be default or sources")
+        if view == "sources" and set(args) - {"query", "view"}:
+            raise ValueError("Source recall accepts only query and view; bank and scope are managed")
+        return self._recall(query, sources=True) if view == "sources" else self._recall(query)
 
     def _tool_reflect(self, args: dict) -> str:
         query = args["query"]

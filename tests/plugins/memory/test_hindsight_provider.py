@@ -1920,6 +1920,7 @@ def test_scoped_retention_and_all_readers_keep_site_boundary(tmp_path, monkeypat
             assert p._enqueue_retain.called is (not factor)
             p.prefetch("prior experience")
             p.handle_tool_call("hindsight_recall", {"query": "prior experience"})
+            p.handle_tool_call("hindsight_recall", {"query": "prior experience", "view": "sources"})
             p.handle_tool_call("hindsight_reflect", {"query": "prior experience"})
             for call in [*p._client.arecall.call_args_list, *p._client.areflect.call_args_list]:
                 assert call.kwargs["bank_id"] == ("site" if factor else "chat")
@@ -1952,3 +1953,49 @@ def test_bank_disabled_admission_is_scoped_and_has_visible_reason(tmp_path, monk
             assert bool(p.unavailable_reason()) is (not enabled)
         finally:
             reset_secret_scope(token)
+
+
+def test_source_view_uses_pinned_client_and_preserves_partial_originals(provider):
+    from hindsight_client import Hindsight
+    from hindsight_client_api.models.recall_response import RecallResponse
+    client = Hindsight(base_url="http://localhost:9999", api_key="test-key")
+    payload = {"results": [
+        {"id": "scheduled", "text": "Return to service announced", "type": "world",
+         "document_id": "notice", "chunk_id": "chunk", "tags": ["scope:site"],
+         "mentioned_at": "2026-09-24T00:00:00Z", "occurred_start": "2026-10-02T00:00:00Z"},
+        {"id": "partial", "text": "Another observation", "type": "experience",
+         "document_id": "other", "chunk_id": "omitted"},
+        {"id": "unlinked", "text": "Unknown support", "type": "world"}],
+        "chunks": {"chunk": {"id": "chunk", "text": "Announced on September 24: service is scheduled to resume October 2.", "chunk_index": 0}}}
+    client._memory_api.recall_memories = AsyncMock(return_value=RecallResponse.from_dict(payload))
+    provider._client = client
+    provider._recall_tags, provider._recall_tags_match = ["scope:site"], "all_strict"
+    try:
+        result = json.loads(provider.handle_tool_call("hindsight_recall", {"query": "outage", "view": "sources"}))["result"]
+        request = client._memory_api.recall_memories.call_args.args[1]
+        assert request.types == ["world", "experience"]
+        assert request.tags == ["scope:site"] and request.tags_match == "all_strict"
+        assert request.max_tokens == 4096 and request.include.chunks.max_tokens == 2048
+        assert result["chunks"]["chunk"]["text"] == payload["chunks"]["chunk"]["text"]
+        assert result["results"][0]["mentioned_at"].startswith("2026-09-24")
+        assert result["results"][0]["occurred_start"].startswith("2026-10-02")
+        assert result["missing_chunk_ids"] == ["omitted"]
+        assert result["unlinked_result_ids"] == ["unlinked"]
+        assert result["source_support_status"] == "unverified"
+        provider.handle_tool_call("hindsight_recall", {"query": "outage"})
+        default = client._memory_api.recall_memories.call_args.args[1]
+        assert default.types == ["observation"] and default.include.chunks is None
+        client._memory_api.recall_memories.side_effect = TimeoutError("secret=hidden")
+        failed = json.loads(provider.handle_tool_call("hindsight_recall", {"query": "outage", "view": "sources"}))
+        assert "error" in failed and "hidden" not in json.dumps(failed)
+    finally:
+        provider.shutdown()
+
+
+@pytest.mark.parametrize("extra", [{"view": "other"}, {"view": None},
+    {"view": "sources", "bank_id": "foreign"}, {"view": "sources", "tags": []},
+    {"view": "sources", "types": ["observation"]}])
+def test_source_view_rejects_invalid_view_or_scope_override(provider, extra):
+    result = json.loads(provider.handle_tool_call("hindsight_recall", {"query": "findings", **extra}))
+    assert "error" in result
+    provider._client.arecall.assert_not_called()
