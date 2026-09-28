@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from tools.browser_tool import AGENT_BROWSER_NPX_SPEC
 from hermes_cli.nous_account import NousPortalAccountInfo, NousToolAccessInfo
 from hermes_cli.nous_subscription import NousSubscriptionFeatures
 from hermes_cli.tools_config import (
@@ -395,206 +394,53 @@ def test_numeric_mcp_server_name_does_not_crash_sorted():
 
 
 class TestAgentBrowserPostSetup:
-    """Pinned agent-browser Chromium post-setup; floating npx install is retired."""
+    """Cloud isolation, image ownership, and failed setup remain observable."""
 
-    def test_warns_when_agent_browser_missing(self):
-        with patch(
-            "tools.browser_tool_install._find_agent_browser",
-            side_effect=FileNotFoundError("agent-browser CLI not found"),
-        ), patch("subprocess.run") as run, patch(
-            "hermes_cli.tools_config_post_setup._print_warning"
-        ) as warn:
-            _run_post_setup("agent_browser")
+    @pytest.fixture(autouse=True)
+    def _stub_browser_use_install(self):
+        with patch("hermes_cli.tools_config_post_setup._ensure_browser_use_cli") as stub:
+            yield stub
 
-        run.assert_not_called()
-        warn.assert_called_once()
-        msg = warn.call_args.args[0].lower()
-        assert "pinned" in msg or "retired" in msg
+    @pytest.fixture(autouse=True)
+    def _stub_package_install(self):
+        with patch("pm.ensure") as ensure:
+            yield ensure
 
-    def test_browserbase_returns_before_any_chromium_check(self):
-        with patch(
-            "tools.browser_tool_install._find_agent_browser",
-            return_value="/usr/local/bin/agent-browser",
-        ), patch("subprocess.run") as run, patch(
-            "tools.browser_tool_install._chromium_installed"
-        ) as chromium_check:
-            _run_post_setup("browserbase")
 
-        run.assert_not_called()
-        chromium_check.assert_not_called()
 
-    def test_chromium_already_installed_skips_subprocess(self):
-        with patch(
-            "tools.browser_tool_install._find_agent_browser",
-            return_value="/usr/local/bin/agent-browser",
-        ), patch("subprocess.run") as run, patch(
-            "tools.browser_tool_install._chromium_installed", return_value=True
-        ), patch(
-            "hermes_cli.tools_config_post_setup._print_success"
-        ) as success:
-            _run_post_setup("agent_browser")
+    @pytest.mark.parametrize("failure", ["pm", "timeout"])
+    def test_install_failure_reports_error(self, failure):
+        import pm
 
-        run.assert_not_called()
-        success.assert_called_once()
-        assert "already installed" in success.call_args.args[0]
-
-    def test_docker_with_missing_chromium_warns_instead_of_installing(self):
-        with patch(
-            "tools.browser_tool_install._find_agent_browser",
-            return_value="/usr/local/bin/agent-browser",
-        ), patch("subprocess.run") as run, patch(
-            "tools.browser_tool_install._chromium_installed", return_value=False
-        ), patch(
-            "tools.browser_tool_install._running_in_docker", return_value=True
-        ), patch(
-            "hermes_cli.tools_config_post_setup._print_warning"
-        ) as warn:
-            _run_post_setup("agent_browser")
-
-        run.assert_not_called()
-        assert any("Docker" in c.args[0] for c in warn.call_args_list)
-
-    def test_find_agent_browser_not_found_warns_before_any_chromium_check(self):
-        with patch("subprocess.run") as run, patch(
-            "tools.browser_tool_install._chromium_installed"
-        ) as chromium_check, patch(
-            "tools.browser_tool_install._running_in_docker"
-        ) as docker_check, patch(
-            "tools.browser_tool_install._find_agent_browser",
-            side_effect=FileNotFoundError("agent-browser CLI not found"),
-        ), patch(
-            "hermes_cli.tools_config_post_setup._print_warning"
-        ) as warn:
-            _run_post_setup("agent_browser")
-
-        run.assert_not_called()
-        chromium_check.assert_not_called()
-        docker_check.assert_not_called()
-        assert any("retired" in c.args[0].lower() or "pinned" in c.args[0].lower() for c in warn.call_args_list)
-
-    def test_npx_sentinel_is_refused(self):
-        with patch("subprocess.run") as run, patch(
-            "tools.browser_tool_install._find_agent_browser", return_value="npx agent-browser"
-        ), patch(
-            "hermes_cli.tools_config_post_setup._print_warning"
-        ) as warn:
-            _run_post_setup("agent_browser")
-
-        run.assert_not_called()
-        assert any("retired" in c.args[0].lower() or "pinned" in c.args[0].lower() for c in warn.call_args_list)
-
-    def test_installs_chromium_via_resolved_local_binary_path(self):
-        with patch("subprocess.run") as run, patch(
-            "tools.browser_tool_install._chromium_installed", return_value=False
-        ), patch(
+        error = (pm.InstallError("agent-browser", "fatal: network error") if failure == "pm"
+                 else subprocess.TimeoutExpired(cmd=["agent-browser"], timeout=600))
+        with patch("pm.ensure", side_effect=error), patch(
             "tools.browser_tool_install._running_in_docker", return_value=False
-        ), patch(
-            "tools.browser_tool_install._find_agent_browser",
-            return_value="/usr/local/bin/agent-browser",
-        ), patch(
-            "hermes_cli.tools_config_post_setup._print_success"
-        ):
-            run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
-            _run_post_setup("agent_browser")
-
-        run.assert_called_once()
-        assert run.call_args.args[0] == [
-            "/usr/local/bin/agent-browser", "install", "--with-deps",
-        ]
-
-    def test_install_success_invalidates_chromium_cache(self):
-        import tools.browser_tool as _bt
-
-        with patch(
-            "subprocess.run",
-            return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
-        ), patch(
-            "tools.browser_tool_install._chromium_installed", return_value=False
-        ), patch(
-            "tools.browser_tool_install._running_in_docker", return_value=False
-        ), patch(
-            "tools.browser_tool_install._find_agent_browser",
-            return_value="/usr/local/bin/agent-browser",
-        ), patch(
-            "hermes_cli.tools_config_post_setup._print_success"
-        ):
-            _bt._cached_chromium_installed = True
-            _run_post_setup("agent_browser")
-
-        assert _bt._cached_chromium_installed is None
-
-    def test_install_failure_prints_stderr_tail_and_does_not_invalidate_cache(self):
-        import tools.browser_tool as _bt
-
-        with patch(
-            "subprocess.run",
-            return_value=SimpleNamespace(
-                returncode=1, stdout="", stderr="line1\nline2\nfatal: network error"
-            ),
-        ), patch(
-            "tools.browser_tool_install._chromium_installed", return_value=False
-        ), patch(
-            "tools.browser_tool_install._running_in_docker", return_value=False
-        ), patch(
-            "tools.browser_tool_install._find_agent_browser",
-            return_value="/usr/local/bin/agent-browser",
-        ), patch(
-            "hermes_cli.tools_config_post_setup._print_warning"
-        ) as warn, patch(
+        ), patch("hermes_cli.tools_config_post_setup._print_warning") as warn, patch(
             "hermes_cli.tools_config_post_setup._print_info"
         ) as info:
-            _bt._cached_chromium_installed = "sentinel"
             _run_post_setup("agent_browser")
 
-        assert any("Chromium install failed" in c.args[0] for c in warn.call_args_list)
-        assert any("fatal: network error" in c.args[0] for c in info.call_args_list)
-        assert _bt._cached_chromium_installed == "sentinel"
-
-    def test_install_timeout_warns_without_raising(self):
-        with patch(
-            "subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd=["agent-browser"], timeout=600),
-        ), patch(
-            "tools.browser_tool_install._chromium_installed", return_value=False
-        ), patch(
-            "tools.browser_tool_install._running_in_docker", return_value=False
-        ), patch(
-            "tools.browser_tool_install._find_agent_browser",
-            return_value="/usr/local/bin/agent-browser",
-        ), patch(
-            "hermes_cli.tools_config_post_setup._print_warning"
-        ) as warn:
-            _run_post_setup("agent_browser")
-
-        assert any("timed out" in c.args[0] for c in warn.call_args_list)
+        assert any(str(error) in c.args[0] for c in warn.call_args_list)
+        assert any("hermes tools post-setup agent_browser" in c.args[0] for c in info.call_args_list)
 
 
-class TestBrowserUseCliRetiredFromPostSetup:
-    """Browser Use CLI install is retired from hermes tools post-setup."""
-
-    def test_browser_use_cli_post_setup_prints_retirement(self):
-        with patch("hermes_cli.tools_config_post_setup._print_info") as info, patch(
-            "tools.browser_use_cli.install_cli"
-        ) as install:
-            _run_post_setup("browser_use_cli")
-        install.assert_not_called()
-        assert any("retired" in c.args[0].lower() for c in info.call_args_list)
-
-    def test_camofox_post_setup_never_touches_browser_use(self):
+class TestRetiredBrowserControllers:
+    @pytest.mark.parametrize("key", ["agent_browser", "browserbase", "lightpanda"])
+    def test_native_setup_does_not_install_alternate_controller(self, key):
         with patch("hermes_cli.tools_config_post_setup._ensure_browser_use_cli") as ensure, patch(
-            "hermes_constants.find_node_executable", return_value=None
-        ), patch("subprocess.run"):
-            _run_post_setup("camofox")
+            "shutil.which", return_value=None
+        ), patch("subprocess.run"), patch("pm.ensure"):
+            _run_post_setup(key)
         ensure.assert_not_called()
 
-    def test_ensure_helper_prints_retirement_without_install(self):
-        with patch("tools.browser_use_cli.install_cli") as install, patch(
-            "hermes_cli.tools_config_post_setup._print_info"
-        ) as info:
-            from hermes_cli.tools_config import _ensure_browser_use_cli
-            _ensure_browser_use_cli()
-        install.assert_not_called()
-        assert any("retired" in c.args[0].lower() for c in info.call_args_list)
+    @pytest.mark.parametrize("key", ["browser_use_cli", "camofox"])
+    def test_retired_setup_reports_without_installing(self, key, capsys):
+        with patch("pm.ensure") as ensure, patch("subprocess.run") as run:
+            _run_post_setup(key)
+        ensure.assert_not_called()
+        run.assert_not_called()
+        assert "retired" in capsys.readouterr().out.lower()
 
 
 class TestImagegenBackendRegistry:
@@ -1148,15 +994,19 @@ def test_explicit_plugin_toolset_admitted_against_real_a2a_plugin(monkeypatch):
 class TestLightpandaPostSetup:
     """The Lightpanda picker row: no Chromium, just the binary check."""
 
-    def test_reports_binary_when_found(self):
+    @pytest.fixture(autouse=True)
+    def _stub_browser_use_install(self):
+        with patch("hermes_cli.tools_config_post_setup._ensure_browser_use_cli") as stub:
+            yield stub
+
+    def test_reports_binary_when_found(self, _stub_browser_use_install):
         from hermes_cli.tools_config import _run_post_setup
 
         with patch("tools.browser_lightpanda.find_lightpanda_binary", return_value="/opt/lightpanda"), \
              patch("hermes_cli.tools_config_post_setup._print_success") as ok, \
-             patch("hermes_cli.tools_config_post_setup._print_warning") as warn, \
-             patch("hermes_cli.tools_config_post_setup._ensure_browser_use_cli") as ensure:
+             patch("hermes_cli.tools_config_post_setup._print_warning") as warn:
             _run_post_setup("lightpanda")
-        ensure.assert_not_called()
+        _stub_browser_use_install.assert_not_called()
         assert "/opt/lightpanda" in ok.call_args.args[0]
         warn.assert_not_called()
 
