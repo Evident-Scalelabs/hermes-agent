@@ -144,6 +144,25 @@ def _forget_session_tracking(task_id: str, *, activity: bool = True, session: bo
         _bt._cleanup_failures.pop(task_id, None)
 
 
+@contextlib.contextmanager
+def model_request_browser_scope(task_id: str):
+    """Protect only this task's browser while its bounded model request is in flight."""
+    task_id = _bt._bare_task_id_for_session_key(task_id)
+    with _bt._cleanup_condition:
+        _bt._cleanup_condition.wait_for(lambda: task_id not in _bt._idle_cleanup_claims)
+        _bt._model_request_counts[task_id] = _bt._model_request_counts.get(task_id, 0) + 1
+    try:
+        yield
+    finally:
+        with _bt._cleanup_condition:
+            remaining = _bt._model_request_counts[task_id] - 1
+            if remaining:
+                _bt._model_request_counts[task_id] = remaining
+            else:
+                _bt._model_request_counts.pop(task_id)
+            _bt._cleanup_condition.notify_all()
+
+
 def _cleanup_inactive_browser_sessions():
     """Close sessions inactive longer than the timeout (cleanup thread).
 
@@ -160,36 +179,50 @@ def _cleanup_inactive_browser_sessions():
                                if current_time - last_time > _bt.BROWSER_SESSION_INACTIVITY_TIMEOUT]
 
     for task_id in sessions_to_cleanup:
-        with _session_owner_scope(task_id):
-            if _human_holds_shared_browser(task_id):
-                # A human took the bot's screen (login, 2FA) — the agent is idle BECAUSE they are working.
-                _update_session_activity(task_id)
+        owner = _bt._bare_task_id_for_session_key(task_id)
+        with _bt._cleanup_condition:
+            # Recheck after selection: a request or browser command may have started.
+            if (_bt._model_request_counts.get(owner, 0) or owner in _bt._idle_cleanup_claims
+                    or current_time - _bt._session_last_activity.get(task_id, current_time)
+                    <= _bt.BROWSER_SESSION_INACTIVITY_TIMEOUT):
                 continue
-        elapsed = int(current_time - _bt._session_last_activity.get(task_id, current_time))
-        _bt.logger.info("Cleaning up inactive session for task: %s (inactive for %ss)", task_id, elapsed)
+            _bt._idle_cleanup_claims.add(owner)
         try:
             with _session_owner_scope(task_id):
-                if cleanup_browser(task_id) is False:
-                    raise RuntimeError("Browser cleanup returned failure; ownership retained for retry")
-            _forget_session_tracking(task_id)
-        except Exception as e:
-            with _bt._cleanup_lock:
-                failures = _bt._cleanup_failures[task_id] = _bt._cleanup_failures.get(task_id, 0) + 1
-            if failures < _bt.MAX_INACTIVITY_CLEANUP_FAILURES:
-                _bt.logger.warning("Error cleaning up inactive session %s (attempt %d/%d): %s",
-                               task_id, failures, _bt.MAX_INACTIVITY_CLEANUP_FAILURES, e)
-                continue
-            _bt.logger.error("Browser cleanup failed %d times for inactive session %s; "
-                         "force-reaping: %s", failures, task_id, e)
-            reaped = False
+                if _human_holds_shared_browser(task_id):
+                    # A human took the bot's screen (login, 2FA) — the agent is idle BECAUSE they are working.
+                    _update_session_activity(task_id)
+                    continue
+            elapsed = int(current_time - _bt._session_last_activity.get(task_id, current_time))
+            _bt.logger.info("Cleaning up inactive session for task: %s (inactive for %ss)", task_id, elapsed)
             try:
                 with _session_owner_scope(task_id):
-                    reaped = _force_reap_browser_session(task_id) is not False
-            except Exception as reap_exc:
-                _bt.logger.error("Force-reap of browser session %s failed: %s", task_id, reap_exc)
-            finally:
-                if reaped:
-                    _forget_session_tracking(task_id, activity=False)
+                    if cleanup_browser(task_id) is False:
+                        raise RuntimeError("Browser cleanup returned failure; ownership retained for retry")
+                _forget_session_tracking(task_id)
+            except Exception as e:
+                with _bt._cleanup_lock:
+                    failures = _bt._cleanup_failures[task_id] = _bt._cleanup_failures.get(task_id, 0) + 1
+                if failures < _bt.MAX_INACTIVITY_CLEANUP_FAILURES:
+                    _bt.logger.warning("Error cleaning up inactive session %s (attempt %d/%d): %s",
+                                   task_id, failures, _bt.MAX_INACTIVITY_CLEANUP_FAILURES, e)
+                    continue
+                _bt.logger.error("Browser cleanup failed %d times for inactive session %s; "
+                             "force-reaping: %s", failures, task_id, e)
+                reaped = False
+                try:
+                    with _session_owner_scope(task_id):
+                        reaped = _force_reap_browser_session(task_id) is not False
+                except Exception as reap_exc:
+                    _bt.logger.error("Force-reap of browser session %s failed: %s", task_id, reap_exc)
+                finally:
+                    if reaped:
+                        _forget_session_tracking(task_id, activity=False)
+
+        finally:
+            with _bt._cleanup_condition:
+                _bt._idle_cleanup_claims.discard(owner)
+                _bt._cleanup_condition.notify_all()
 
 
 def _human_holds_shared_browser(task_id: str) -> bool:

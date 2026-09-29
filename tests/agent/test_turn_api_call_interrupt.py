@@ -6,6 +6,8 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
 from agent.agent_runtime_helpers import _INTERRUPTED_PLACEHOLDER
 from agent.repetition_guard import REPETITION_LOOP_INTERRUPTED
 from agent.turn_api_call import handle_api_interrupt
@@ -73,3 +75,49 @@ def test_ordinary_partial_is_kept_as_the_interrupted_row():
 
     assert (messages[-1]["role"], messages[-1]["content"]) == ("assistant", "Visible draft.")
     assert verdict.final_response == "Visible draft."
+
+
+@pytest.mark.parametrize("streaming", [True, False])
+@pytest.mark.parametrize("failure", [None, InterruptedError, RuntimeError])
+def test_model_request_protects_browser_until_transport_finishes(monkeypatch, streaming, failure):
+    from types import SimpleNamespace
+    from agent import turn_api_call, relay_llm
+    from tools import browser_tool as bt, browser_tool_lifecycle as lifecycle
+    import hermes_cli.middleware
+
+    monkeypatch.setattr(bt, "_session_last_activity", {"request-task": 0, "request-task::local": 0})
+    monkeypatch.setattr(bt, "_model_request_counts", {})
+    monkeypatch.setattr(bt, "_idle_cleanup_claims", set())
+    closed = []
+    monkeypatch.setattr(lifecycle, "cleanup_browser", lambda task: closed.append(task))
+    monkeypatch.setattr(lifecycle, "_human_holds_shared_browser", lambda task: False)
+    monkeypatch.setattr(turn_api_call, "_should_stream", lambda agent: streaming)
+    monkeypatch.setattr(hermes_cli.middleware, "run_llm_execution_middleware", lambda args, call, **kw: call(args))
+    monkeypatch.setattr(relay_llm, "execute", lambda args, call, **kw: call(args))
+
+    def transport(*args, **kwargs):
+        lifecycle._cleanup_inactive_browser_sessions()
+        assert closed == []
+        assert bt._model_request_counts == {"request-task": 1}
+        if failure:
+            raise failure("transport ended")
+        return "response"
+
+    agent = SimpleNamespace(
+        api_mode="chat", session_id="different-session", platform="test", model="test", provider="test",
+        base_url="", _interruptible_streaming_api_call=transport, _interruptible_api_call=transport,
+        _model_request_active=threading.Event(), _has_pending_redirect=lambda: False,
+    )
+    kwargs = dict(api_kwargs={}, _original_api_kwargs={}, _llm_middleware_trace=[],
+                  _moa_prepared_request=None, _retry=None, thinking_spinner=None, retry_count=0,
+                  api_call_count=1, api_request_id="request", effective_task_id="request-task",
+                  turn_id="turn", interrupted=False)
+    if failure:
+        with pytest.raises(failure, match="transport ended"):
+            turn_api_call.perform_api_call(agent, **kwargs)
+    else:
+        assert turn_api_call.perform_api_call(agent, **kwargs).response == "response"
+    assert bt._model_request_counts == {}
+    assert not agent._model_request_active.is_set()
+    lifecycle._cleanup_inactive_browser_sessions()
+    assert set(closed) == {"request-task", "request-task::local"}
