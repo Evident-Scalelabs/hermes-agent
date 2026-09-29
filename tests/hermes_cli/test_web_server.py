@@ -842,7 +842,7 @@ class FlatProvMemoryProvider(MemoryProvider):
             {"key": "mode", "label": "Mode", "choices": ["cloud", "local_external"], "default": "cloud"},
             {"key": "api_url", "label": "API URL", "default": ""},
             {"key": "api_key", "label": "API key", "secret": True, "env_var": "FLATPROV_API_KEY"},
-            {"key": "bank_id", "label": "Bank", "default": "hermes"},
+            {"key": "bank_id", "label": "Bank", "default": "hermes", "env_var": "FLATPROV_BANK_ID"},
             {"key": "recall_budget", "label": "Budget", "choices": ["low", "mid", "high"], "default": "mid"},
         ]
 
@@ -972,6 +972,24 @@ CONFIG_SCHEMA = ProviderConfigSchema(
         assert provider_config["bank_id"] == "ben-bank"
         assert provider_config["recall_budget"] == "high"
         assert "api_key" not in provider_config
+
+
+    @pytest.mark.parametrize("submitted", [None, "", "  "])
+    def test_put_memory_provider_config_prefers_env_over_schema_default(self, monkeypatch, submitted):
+        """An env-backed field that is omitted or blank saves the env value, not the default."""
+        from hermes_constants import get_hermes_home
+
+        monkeypatch.setenv("FLATPROV_BANK_ID", "profile-from-env")
+        self._install_flatprov()
+        values = {"mode": "local_external", "api_url": "https://hs.example.invalid", "recall_budget": "low"}
+        if submitted is not None:
+            values["bank_id"] = submitted
+        resp = self.client.put("/api/memory/providers/flatprov/config", json={"values": values})
+
+        assert resp.status_code == 200
+        config_path = get_hermes_home() / "flatprov" / "config.json"
+        provider_config = json.loads(config_path.read_text(encoding="utf-8"))
+        assert provider_config["bank_id"] == "profile-from-env"
 
 
     def test_get_memory_provider_config_does_not_return_secret(self):
