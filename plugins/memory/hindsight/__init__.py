@@ -873,7 +873,7 @@ class HindsightMemoryProvider(MemoryProvider):
             logger.debug("Prefetch: skipped (%s)", why)
         return why is not None
 
-    def _recall(self, query: str, *, sources: bool = False) -> dict:
+    def _recall(self, query: str, *, sources: bool = False, prefetch: bool = False) -> dict:
         kwargs: dict = {"bank_id": self._bank_id, "query": query, "budget": self._budget, "max_tokens": self._recall_max_tokens}
         if self._recall_tags:
             kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match)
@@ -883,8 +883,20 @@ class HindsightMemoryProvider(MemoryProvider):
         if sources:
             kwargs.update(types=["world", "experience"], max_tokens=4096,
                           include_chunks=True, max_chunk_tokens=2048)
+        if prefetch:
+            # Automatic context is a small reading aid, not a provenance dump.
+            # Explicit recall keeps the full native attribution/source contract.
+            kwargs.update(max_tokens=min(self._recall_max_tokens, 1024), include_source_facts=False)
         resp = self._run_hindsight_operation(lambda client: client.arecall(**kwargs))
         response = resp.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if prefetch:
+            return {
+                "results": [{key: value for key, value in result.items() if key in (
+                    "id", "text", "type", "document_id", "occurred_start", "occurred_end", "tags",
+                )} for result in response["results"]],
+                "support_completeness": "not_loaded",
+                "authority": "Historical advice, not current measurement evidence. Use hindsight_recall(view='sources') with a targeted question to verify original wording, dates and limitations before relying on a material claim.",
+            }
         facts = response.get("source_facts") or {}
         missing = sorted({fact_id for result in response["results"]
                           for fact_id in (result.get("source_fact_ids") or []) if fact_id not in facts})
@@ -925,7 +937,7 @@ class HindsightMemoryProvider(MemoryProvider):
                 return self._reflect(query) or "", 0
             logger.debug("Recall: calling recall (bank=%s, query_len=%d, budget=%s)",
                          self._bank_id, len(query), self._budget)
-            response = self._recall(query)
+            response = self._recall(query, prefetch=True)
             count = len(response["results"])
             logger.debug("Recall: returned %d results", count)
             return json.dumps(response, ensure_ascii=False) if count else "", count
