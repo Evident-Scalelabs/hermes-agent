@@ -98,3 +98,17 @@ def test_invalid_requirement_refused_at_declaration_boundary(tmp_path, modern):
     with pytest.raises(ValueError):
         read_python_declaration(tmp_path)
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("deps", [[], ["fixturedep>=1"]])
+def test_tooling_only_pyproject_does_not_claim_packaging(tmp_path, deps):
+    # hermes-lcm ships a pyproject holding only [tool.ruff]; adopting it as a member made the
+    # workspace synthesize a version-less [project] and `uv lock` failed for every plugin install.
+    (tmp_path / "plugin.yaml").write_text(f"name: tooling\npip_dependencies: {json.dumps(deps)}\n",
+                                          encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('[tool.ruff]\ntarget-version = "py311"\n', encoding="utf-8")
+    declaration = read_python_declaration(tmp_path)
+    assert declaration.pyproject is None
+    assert declaration.requirements == tuple(deps)
+    assert declaration.is_member is bool(deps)
+    assert tmp_path / "pyproject.toml" in declaration.files, "tooling edits still change the member stamp"
