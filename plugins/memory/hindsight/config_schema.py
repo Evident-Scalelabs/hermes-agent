@@ -9,7 +9,7 @@ CONFIG_SCHEMA = ProviderConfigSchema(
     label="Hindsight",
     fields=(
         ProviderField(
-            key="mode", label="Mode", kind=KIND_SELECT, default="cloud",
+            key="mode", label="Mode", kind=KIND_SELECT, default="cloud", env_fallbacks=("HINDSIGHT_MODE",),
             description="How Hermes connects to Hindsight.",
             options=(
                 ProviderFieldOption("cloud", "Cloud", "Hindsight Cloud API (lightweight, just needs an API key)"),
@@ -26,7 +26,7 @@ CONFIG_SCHEMA = ProviderConfigSchema(
             key="api_url", label="API URL", kind=KIND_TEXT, default="https://api.hindsight.vectorize.io",
             aliases=("apiUrl",), env_fallbacks=("HINDSIGHT_API_URL",), inline=True,
         ),
-        ProviderField(key="bank_id", label="Bank ID", kind=KIND_TEXT, default="hermes", aliases=("bankId",), inline=True),
+        ProviderField(key="bank_id", label="Bank ID", kind=KIND_TEXT, default="hermes", aliases=("bankId",), env_fallbacks=("HINDSIGHT_BANK_ID",), inline=True),
         ProviderField(
             key="recall_budget", label="Recall budget", kind=KIND_SELECT, default="mid", aliases=("budget",),
             options=tuple(ProviderFieldOption(b, b) for b in ("low", "mid", "high")),
