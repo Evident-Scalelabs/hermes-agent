@@ -542,10 +542,14 @@ class TestToolHandlers:
             assert request.include.source_facts.max_tokens == 1024
             assert request.include.chunks is None and request.max_tokens == 4096
             text, count = provider._do_recall("page")
-            assert count == len(result["results"]) and json.loads(text) == result
+            automatic_result = json.loads(text)
+            assert count == len(result["results"])
+            assert automatic_result["results"][0]["text"] == "Dated assessment"
+            assert automatic_result["results"][0]["document_id"] == "lesson"
+            assert automatic_result["support_completeness"] == "not_loaded"
             automatic = client._memory_api.recall_memories.call_args.args[1]
-            assert automatic.include.source_facts.max_tokens == 1024
-            assert automatic.types == request.types and automatic.max_tokens == request.max_tokens
+            assert automatic.include.source_facts is None
+            assert automatic.types == request.types and automatic.max_tokens == 1024
             retained = json.loads(provider.handle_tool_call("hindsight_retain", {
                 "content": "Assessment with known date", "occurred_at": "2026-09-20", "metadata": {"status": "assessment"}}))["result"]
             assert retained["status"] == "retained" and retained["usage"]["total_tokens"] == 10
@@ -553,6 +557,26 @@ class TestToolHandlers:
             assert request.items[0].document_id == retained["document_id"]
         finally:
             provider._run_sync(client.aclose())
+
+    def test_automatic_recall_keeps_qualified_text_without_unbounded_source_ids(self, provider):
+        from tools.hook_output_spill import DEFAULT_MAX_CHARS, spill_if_oversized
+        original = {"id": "observation-1", "text": "On September 24 the site announced an October 2 reopening; completion is unknown.",
+                    "type": "observation", "occurred_start": "2026-09-24T00:00:00Z", "tags": ["scope:site"],
+                    "source_fact_ids": [f"source-{n:08d}" for n in range(2000)]}
+        provider._client.arecall.return_value = SimpleNamespace(
+            model_dump=lambda **kwargs: {"results": [original], "source_facts": {}})
+        provider._recall_max_tokens = 512
+        provider._recall_tags, provider._recall_tags_match = ["scope:site"], "all_strict"
+        text, count = provider._do_recall("What reopening was actually observed?")
+        assert count == 1 and len(text) < DEFAULT_MAX_CHARS
+        result = json.loads(text)["results"][0]
+        assert all(result[k] == original[k] for k in ("id", "text", "occurred_start", "tags"))
+        assert spill_if_oversized(text) == text
+        request = provider._client.arecall.call_args.kwargs
+        assert request["max_tokens"] == 512 and request["tags_match"] == "all_strict"
+        assert request["tags"] == ["scope:site"]
+        explicit = json.loads(provider.handle_tool_call("hindsight_recall", {"query": "reopening"}))["result"]
+        assert explicit["results"][0]["source_fact_ids"] == original["source_fact_ids"]
 
     def test_retain_defaults_item_timestamp_when_no_occurred_at(self, provider, monkeypatch):
         event_time = datetime(2026, 8, 24, 9, 30, tzinfo=ZoneInfo("America/Los_Angeles"))
