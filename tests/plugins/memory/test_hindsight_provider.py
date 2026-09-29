@@ -307,6 +307,21 @@ class TestConfig:
         assert provider._recall_types == ["observation"]
 
 
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("scope:site, lane:seo", ["scope:site", "lane:seo"]),
+            ('["scope:site", "lane:seo"]', ["scope:site", "lane:seo"]),
+            (["scope:site", "scope:site"], ["scope:site"]),
+            ("", None),
+            (" , ", None),
+        ],
+    )
+    def test_recall_tags_config_normalized_to_list(self, provider_with_config, raw, expected):
+        """config.json/dashboard store recall_tags as text; the client needs list[str]."""
+        p = provider_with_config(recall_tags=raw)
+        assert p._recall_tags == expected
+
     def test_observation_scopes_keyword_config(self, provider_with_config):
         p = provider_with_config(observation_scopes="per_tag")
         assert p._observation_scopes == "per_tag"
