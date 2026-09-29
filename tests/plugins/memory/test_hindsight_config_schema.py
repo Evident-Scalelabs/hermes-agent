@@ -49,3 +49,23 @@ def test_api_key_is_a_secret_bound_to_env():
     assert api_key.kind == KIND_SECRET
     assert api_key.is_secret is True
     assert api_key.env_key == "HINDSIGHT_API_KEY"
+
+
+def test_connection_fields_show_environment_without_writing_config(tmp_path, monkeypatch):
+    from hermes_cli.web_server_memory import _field_value, _normalize_memory_provider_schema
+    from hermes_cli.web_routers.memory_providers import _declared_provider_payload
+    from plugins.memory.hindsight import HindsightMemoryProvider
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    values = {"mode": "local_external", "api_url": "https://memory.example.test", "bank_id": "profile-example"}
+    for key, value in values.items():
+        monkeypatch.setenv("HINDSIGHT_" + key.upper(), value)
+    (tmp_path / ".env").write_text("\n".join("HINDSIGHT_" + key.upper() + "=" + value for key, value in values.items()))
+    fields = _normalize_memory_provider_schema("hindsight", HindsightMemoryProvider())
+    for field in fields:
+        if field["key"] in values:
+            assert _field_value(field, {}) == values[field["key"]]
+    declared = _declared_provider_payload(get_provider_config_schema("hindsight"))
+    shown = {field["key"]: field["value"] for field in declared["fields"]}
+    assert {key: shown[key] for key in values} == values
+    assert not (tmp_path / "hindsight" / "config.json").exists()
