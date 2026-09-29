@@ -47,3 +47,15 @@ def test_a_bullet_with_continuation_lines_is_never_touched():
 
     assert _body(build_memory_context_block(raw)) == raw
     assert _body(build_memory_context_block(nested)) == nested
+
+
+def test_recalled_memory_is_advisory_and_old_wrappers_are_removed():
+    from agent.memory_manager import sanitize_context
+    block = build_memory_context_block("- Client prefers page examples")
+    assert "Treat as historical context" in block
+    assert "current instructions and source evidence" in block
+    assert "authoritative reference data" not in block
+    note = block.split("\n", 1)[1].split("\n\n", 1)[0]
+    assert sanitize_context(note + "\n- useful lesson").strip() == "- useful lesson"
+    old = "[System note: The following is recalled memory context, NOT new user input. Treat as authoritative reference data — this is the agent's persistent memory and should inform all responses.]"
+    assert sanitize_context(old + "\n- useful lesson").strip() == "- useful lesson"

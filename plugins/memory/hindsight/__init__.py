@@ -251,6 +251,7 @@ def _load_config() -> dict:
         # Internal oneshot transport of the existing native setting; never persisted.
         "recall_sync": get_secret("HINDSIGHT_RECALL_SYNC", "") == "true",
         "auto_retain": get_secret("HINDSIGHT_AUTO_RETAIN", "") != "false",
+        "recall_query": get_secret("HINDSIGHT_RECALL_QUERY", ""),
         "recall_tags": _normalize_retain_tags(get_secret("HINDSIGHT_RECALL_TAGS", "")),
         "recall_tags_match": get_secret("HINDSIGHT_RECALL_TAGS_MATCH", "") or "any",
         "retain_tags": get_secret("HINDSIGHT_RETAIN_TAGS", "") or "",
@@ -442,6 +443,7 @@ class HindsightMemoryProvider(MemoryProvider):
             {"key": "retain_context", "description": "Context label for retained memories", "default": "conversation between Hermes Agent and the User"},
             {"key": "recall_max_tokens", "description": "Maximum tokens for recall results", "default": 4096},
             {"key": "recall_max_input_chars", "description": "Maximum input query length for auto-recall", "default": 800},
+            {"key": "recall_query", "description": "Optional task question for automatic recall; blank uses the current message. Explicit recall keeps its supplied query."},
             {"key": "recall_prompt_preamble", "description": "Custom preamble for recalled memories in context"},
             {"key": "timeout", "description": "API request timeout in seconds", "default": _DEFAULT_TIMEOUT},
             {"key": "idle_timeout", "description": "Embedded daemon idle timeout in seconds (0 disables auto-shutdown)", "default": _DEFAULT_IDLE_TIMEOUT, "when": {"mode": "local_embedded"}},
@@ -789,6 +791,7 @@ class HindsightMemoryProvider(MemoryProvider):
             self._recall_types = [t.strip() for t in configured_types.split(",") if t.strip()]
         else:
             self._recall_types = list([] if configured_types is None else configured_types) or ["observation"]
+        self._recall_query = str(cfg.get("recall_query") or "").strip()
         self._recall_prompt_preamble = cfg.get("recall_prompt_preamble", "")
         self._recall_indicator = bool(cfg.get("recall_indicator", True))
 
@@ -931,6 +934,7 @@ class HindsightMemoryProvider(MemoryProvider):
     def _do_recall(self, query: str) -> tuple[str, int]:
         """One recall/reflect for *query* (background prefetch and ``recall_sync`` paths)
         -> (text, memory count); the count is 0 for reflect (synthesis) and on error."""
+        query = self._recall_query or query
         if self._recall_max_input_chars:
             query = query[:self._recall_max_input_chars]
         try:

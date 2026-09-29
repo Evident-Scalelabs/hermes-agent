@@ -48,7 +48,7 @@ def _clean_env(tmp_path, monkeypatch):
     """Ensure no stale env vars or Windows home state leak between tests."""
     for key in (
         "HINDSIGHT_API_KEY", "HINDSIGHT_API_URL", "HINDSIGHT_BANK_ID",
-        "HINDSIGHT_BUDGET", "HINDSIGHT_MODE", "HINDSIGHT_TIMEOUT", "HINDSIGHT_RECALL_SYNC",
+        "HINDSIGHT_BUDGET", "HINDSIGHT_MODE", "HINDSIGHT_TIMEOUT", "HINDSIGHT_RECALL_SYNC", "HINDSIGHT_RECALL_QUERY",
         "HINDSIGHT_IDLE_TIMEOUT", "HINDSIGHT_LLM_API_KEY",
         "HINDSIGHT_BANK_ENABLED", "HINDSIGHT_AUTO_RETAIN", "HINDSIGHT_RECALL_TAGS", "HINDSIGHT_RECALL_TAGS_MATCH",
         "HINDSIGHT_RETAIN_TAGS", "HINDSIGHT_RETAIN_OBSERVATION_SCOPES",
@@ -1832,7 +1832,7 @@ def test_sync_bridge_is_profile_scoped_and_first_turn(tmp_path, monkeypatch):
     from agent.memory_manager import MemoryManager
     from agent.secret_scope import set_secret_scope, reset_secret_scope
     monkeypatch.setattr("agent.secret_scope._MULTIPLEX_ACTIVE", True)
-    monkeypatch.setenv("HINDSIGHT_RECALL_SYNC", "true")  # Must not leak into a scoped standalone session.
+    monkeypatch.setenv("HINDSIGHT_RECALL_SYNC", "HINDSIGHT_RECALL_QUERY", "true")  # Must not leak into a scoped standalone session.
     for profile, sync in (("A", True), ("B", False), ("A", True)):
         home = tmp_path / profile
         home.mkdir(exist_ok=True)
@@ -2038,3 +2038,57 @@ def test_source_view_rejects_invalid_view_or_scope_override(provider, extra):
     result = json.loads(provider.handle_tool_call("hindsight_recall", {"query": "findings", **extra}))
     assert "error" in result
     provider._client.arecall.assert_not_called()
+
+
+def test_task_recall_question_preserves_explicit_tools_and_retention_choice(provider_with_config):
+    p = provider_with_config(recall_sync=True, auto_retain=False,
+                             recall_query="Client report preferences", recall_max_input_chars=800,
+                             recall_tags=["scope:site"], recall_tags_match="all_strict")
+    p._recall = MagicMock(return_value={"results": [{"text": "Use concrete page examples"}]})
+    assert "page examples" in p.prefetch("Serialized report request " * 100)
+    p._recall.assert_called_once_with("Client report preferences", prefetch=True)
+    p.handle_tool_call("hindsight_recall", {"query": "Exact prior correction"})
+    assert p._recall.call_args.args == ("Exact prior correction",)
+    p.sync_turn("Report request", "Report response")
+    p._client.aretain_batch.assert_not_called()
+    retained = json.loads(p.handle_tool_call("hindsight_retain", {"content": "Client prefers annotated page examples"}))
+    assert retained["result"]["status"] == "retained"
+    p._client.aretain_batch.assert_called_once()
+    assert {schema["name"] for schema in p.get_tool_schemas()} == {"hindsight_retain", "hindsight_recall", "hindsight_reflect"}
+    assert p._recall_tags == ["scope:site"]
+    assert p._recall_tags_match == "all_strict"
+
+
+def test_automatic_task_question_uses_existing_query_budget(provider_with_config):
+    p = provider_with_config(recall_sync=True, recall_query="task " * 300)
+    p._recall = MagicMock(return_value={"results": []})
+    p.prefetch("request")
+    p._recall.assert_called_once_with(("task " * 300).strip()[:800], prefetch=True)
+
+
+def test_task_query_env_stays_with_profile_a_b_a(tmp_path, monkeypatch):
+    from agent.secret_scope import set_secret_scope, reset_secret_scope
+
+    monkeypatch.setenv("HINDSIGHT_RECALL_QUERY", "wrong launch query")
+    for name, question in (("a", "Accepted report feedback"), ("b", ""), ("a", "Accepted report feedback")):
+        home = tmp_path / name
+        home.mkdir(exist_ok=True)
+        monkeypatch.setattr("plugins.memory.hindsight.get_hermes_home", lambda: home)
+        token = set_secret_scope({"HINDSIGHT_BANK_ID": f"site-{name}",
+                                  "HINDSIGHT_RECALL_QUERY": question,
+                                  "HINDSIGHT_RECALL_SYNC": "true",
+                                  "HINDSIGHT_RECALL_TAGS": "scope:site",
+                                  "HINDSIGHT_RECALL_TAGS_MATCH": "all_strict"}, profile_home=str(home))
+        try:
+            p = HindsightMemoryProvider()
+            p.initialize(session_id=f"session-{name}", hermes_home=str(home))
+            p._client = _make_mock_client()
+            p.prefetch("Current request")
+            call = p._client.arecall.call_args.kwargs
+            assert call["query"] == (question or "Current request")
+            assert call["bank_id"] == f"site-{name}"
+            assert call["tags"] == ["scope:site"]
+            assert call["tags_match"] == "all_strict"
+        finally:
+            p.shutdown()
+            reset_secret_scope(token)
