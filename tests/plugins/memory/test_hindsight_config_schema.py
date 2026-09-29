@@ -69,3 +69,10 @@ def test_connection_fields_show_environment_without_writing_config(tmp_path, mon
     shown = {field["key"]: field["value"] for field in declared["fields"]}
     assert {key: shown[key] for key in values} == values
     assert not (tmp_path / "hindsight" / "config.json").exists()
+
+
+def test_bundled_provider_setup_uses_the_core_extra():
+    from hermes_cli.memory_setup import memory_provider_dependency_inputs
+
+    _, inputs = memory_provider_dependency_inputs("hindsight")
+    assert inputs == {"extras": ["hindsight"]}
