@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException
 from hermes_cli.web_deps import late
 from hermes_cli.web_server_dashboard import _invalidate_plugins_hub_cache
 from hermes_cli.web_server_memory import (
-    _coerce_bool, _field_default, _field_is_set, _field_value, _field_visible, _load_memory_provider, _memory_provider_manifest, _memory_provider_setup_info, _memory_provider_setup_manifest, _normalize_memory_provider_schema, _read_memory_provider_existing_values, _require_memory_provider_ready, _run_setup_command,
+    _coerce_bool, _env_lookup, _field_default, _field_is_set, _field_value, _field_visible, _load_memory_provider, _memory_provider_manifest, _memory_provider_setup_info, _memory_provider_setup_manifest, _normalize_memory_provider_schema, _read_memory_provider_existing_values, _require_memory_provider_ready, _run_setup_command,
 )
 from hermes_cli.web_models import MemoryProviderConfigUpdate, MemoryProviderSetupRequest
 from hermes_cli.web_routers._common import _CONFIG_MUTATION_LOCK, scoped_to_thread
@@ -485,7 +485,11 @@ def _write_memory_provider_config_values(name: str, provider: Any, values: Dict[
             if submitted and field.get("_env_key"):
                 secrets[str(field["_env_key"])] = submitted
             continue
-        raw = values[key] if key in values else existing.get(key, _field_default(field))
+        raw = values[key] if key in values else existing.get(key)
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            # Same precedence as the form (_field_value): a configured env var beats the
+            # schema default, so saving never persists a default over the live env.
+            raw = _env_lookup(field.get("_env_key")) or _field_default(field)
         config_values[key] = _coerce_schema_field(field, raw)
     _save_memory_provider_native_config(name, provider, config_values)
     for env_key, secret in secrets.items():
