@@ -218,3 +218,68 @@ class TestAtexitOriginUnimportable:
         monkeypatch.setattr(origin_mod, "origin_module", _boom)
         bt_lifecycle._emergency_cleanup_all_sessions()  # must not raise
         bt_lifecycle._stop_browser_cleanup_thread()  # must not raise
+
+
+def test_model_request_preserves_task_and_local_sessions_then_releases(monkeypatch):
+    import pytest
+    from tools import browser_tool as bt
+
+    monkeypatch.setattr(bt, '_session_last_activity', {'active': 0, 'active::local': 0, 'idle': 0})
+    monkeypatch.setattr(bt, '_model_request_counts', {})
+    monkeypatch.setattr(bt, '_idle_cleanup_claims', set())
+    closed = []
+    monkeypatch.setattr(bt_lifecycle, 'cleanup_browser', lambda task: closed.append(task))
+    monkeypatch.setattr(bt_lifecycle, '_human_holds_shared_browser', lambda task: False)
+    with pytest.raises(RuntimeError, match='interrupted'):
+        with bt_lifecycle.model_request_browser_scope('active'):
+            with bt_lifecycle.model_request_browser_scope('active'):
+                bt_lifecycle._cleanup_inactive_browser_sessions()
+            assert closed == ['idle']
+            assert bt._model_request_counts == {'active': 1}
+            raise RuntimeError('interrupted')
+    assert bt._model_request_counts == {}
+    bt_lifecycle._cleanup_inactive_browser_sessions()
+    assert set(closed) == {'active', 'active::local', 'idle'}
+    assert bt._idle_cleanup_claims == set()
+
+
+def test_model_request_waits_for_claimed_cleanup(monkeypatch):
+    import threading
+    from tools import browser_tool as bt
+
+    monkeypatch.setattr(bt, "_session_last_activity", {"task": 0})
+    monkeypatch.setattr(bt, "_model_request_counts", {})
+    monkeypatch.setattr(bt, "_idle_cleanup_claims", set())
+    monkeypatch.setattr(bt_lifecycle, "_human_holds_shared_browser", lambda task: False)
+    cleaning = threading.Event()
+    waiting = threading.Event()
+    order = []
+    original_wait = bt._cleanup_condition.wait_for
+
+    def wait_for(predicate, timeout=None):
+        assert not predicate()
+        waiting.set()
+        return original_wait(predicate, timeout=5)
+
+    monkeypatch.setattr(bt._cleanup_condition, "wait_for", wait_for)
+
+    def cleanup(task):
+        cleaning.set()
+        assert waiting.wait(5)
+        order.append("cleaned")
+
+    def request():
+        with bt_lifecycle.model_request_browser_scope("task"):
+            order.append("request")
+
+    monkeypatch.setattr(bt_lifecycle, "cleanup_browser", cleanup)
+    janitor = threading.Thread(target=bt_lifecycle._cleanup_inactive_browser_sessions)
+    janitor.start()
+    assert cleaning.wait(5)
+    model = threading.Thread(target=request)
+    model.start()
+    janitor.join(5)
+    model.join(5)
+    assert not janitor.is_alive() and not model.is_alive()
+    assert order == ["cleaned", "request"]
+    assert bt._model_request_counts == {} and bt._idle_cleanup_claims == set()

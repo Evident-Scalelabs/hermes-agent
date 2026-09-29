@@ -455,6 +455,9 @@ _browser_session_backend = _BrowserSessionBackend
 _cleanup_thread = None
 _cleanup_running = False
 _cleanup_lock = threading.Lock()  # protects _session_last_activity AND _active_sessions
+_cleanup_condition = threading.Condition(_cleanup_lock)
+_model_request_counts: Dict[str, int] = {}
+_idle_cleanup_claims: set[str] = set()
 
 from tools import browser_tool_lifecycle as _lifecycle
 
