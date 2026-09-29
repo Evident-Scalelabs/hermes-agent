@@ -1832,7 +1832,7 @@ def test_sync_bridge_is_profile_scoped_and_first_turn(tmp_path, monkeypatch):
     from agent.memory_manager import MemoryManager
     from agent.secret_scope import set_secret_scope, reset_secret_scope
     monkeypatch.setattr("agent.secret_scope._MULTIPLEX_ACTIVE", True)
-    monkeypatch.setenv("HINDSIGHT_RECALL_SYNC", "HINDSIGHT_RECALL_QUERY", "true")  # Must not leak into a scoped standalone session.
+    monkeypatch.setenv("HINDSIGHT_RECALL_SYNC", "true")  # Must not leak into a scoped standalone session.
     for profile, sync in (("A", True), ("B", False), ("A", True)):
         home = tmp_path / profile
         home.mkdir(exist_ok=True)
