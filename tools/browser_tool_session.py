@@ -835,14 +835,17 @@ def _dispatch_browser_command(
     if not teardown and session_info.get("cdp_url"):
         _cdp._ensure_cdp_supervisor(task_id)
 
+    # Every backend runs in this task's own daemon (``--session <name>``); Cloud/CDP adds
+    # ``--cdp <ws_url>`` to attach it to the remote browser. Without --session every CDP task
+    # shared agent-browser's default daemon, so one task's snapshot refs or close hit the others.
     # agent-browser 0.38.1 uses the same session name for tab binding and daemon PID files.
     # Engine injection keys off the resolved session backend, not global provider
     # state: hybrid routing can create a local sidecar while a cloud provider stays configured.
     engine = _engine_override or _cloud._get_browser_engine()
+    backend_args = ["--session", session_info["session_name"]]
     if session_info.get("cdp_url"):
-        backend_args = ["--session", session_info["session_name"], "--cdp", session_info["cdp_url"], "--pin-tab"]
+        backend_args += ["--cdp", session_info["cdp_url"], "--pin-tab"]
     else:
-        backend_args = ["--session", session_info["session_name"]]
         if (bd_port := _bot_desktop_attach_port(session_info)) is not None:
             # A Chromium already runs on the Bot Desktop's shared profile (the human clicked the dock's
             # Browser first): a launch would be forwarded into it by Chromium's singleton and die without
