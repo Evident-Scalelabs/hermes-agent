@@ -353,18 +353,19 @@ class TestCdpSessionCommandArgs:
     def _argv(self, monkeypatch, session_info):
         from tools import browser_tool_session as bt_session
 
-        captured = []
+        calls = []
 
         def fake_spawn(task_id, info, cmd_parts, *rest):
-            captured.extend(cmd_parts)
-            return {"success": True, "data": {}}
+            calls.append(list(cmd_parts))
+            # A CDP session first binds its own tab; the daemon reports that tab's id.
+            return {"success": True, "data": {"targetId": "owned-tab"}}
 
         monkeypatch.setattr("tools.browser_tool_cdp._ensure_cdp_supervisor", lambda task_id: None)
         monkeypatch.setattr(bt_session, "_spawn_and_collect", fake_spawn)
         _engine, result = bt_session._dispatch_browser_command(
             "test-task", session_info, "/usr/bin/agent-browser", "click", ["@e4"], 30, None)
         assert result["success"] is True
-        return captured
+        return calls[-1]
 
     def test_cdp_session_passes_its_own_session_and_cdp_url(self, monkeypatch):
         argv = self._argv(monkeypatch, {
@@ -375,6 +376,7 @@ class TestCdpSessionCommandArgs:
         assert argv.count("--session") == 1
         assert argv[argv.index("--session") + 1] == "cdp_test_123"
         assert argv[argv.index("--cdp") + 1] == "ws://127.0.0.1:9222/devtools/browser/abc"
+        assert "--pin-tab" in argv  # commands stay on the task-owned tab
         assert argv[-2:] == ["click", "@e4"]
 
     def test_local_session_keeps_session_without_cdp(self, monkeypatch):
