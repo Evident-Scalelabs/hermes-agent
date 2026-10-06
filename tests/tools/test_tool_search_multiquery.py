@@ -352,7 +352,7 @@ class TestMultiQuerySearch:
         ))
         assert result["queries"] == ["post slack message"]
 
-    def test_max_query_cap_respected(self, issue_defs, monkeypatch):
+    def test_remote_query_cap_chunks_search_without_rejecting_local_work(self, issue_defs, monkeypatch):
         import tools.tool_search as tool_search
 
         monkeypatch.setattr(tool_search, "_MAX_QUERIES_PER_CALL", 2)
@@ -362,7 +362,20 @@ class TestMultiQuerySearch:
         assert "error" not in ok
         over = json.loads(tool_search.dispatch_tool_search(
             {"queries": ["a", "b", "c"]}, current_tool_defs=issue_defs, config=cfg))
-        assert "error" in over
+        assert "error" not in over
+        from types import SimpleNamespace
+        batches = []
+        def remote_search(use_cases):
+            batches.append(use_cases)
+            return SimpleNamespace(failure=None, payload={"schemas": {}, "results": [
+                {"use_case": case["use_case"], "tools": []} for case in use_cases]})
+        queries = ["linear issue", "slack message", "linear create issue"]
+        result = json.loads(tool_search.dispatch_tool_search(
+            {"queries": queries}, current_tool_defs=issue_defs + [_td("manage_connections", "Connect apps")],
+            config=cfg, connector_search=remote_search))
+        assert [len(batch) for batch in batches] == [2, 1]
+        assert [row["query"] for row in result["results"]] == queries
+        assert "mq_linear_create_issue" in result["results"][2]["matches"]
 
 
 # ---------------------------------------------------------------------------

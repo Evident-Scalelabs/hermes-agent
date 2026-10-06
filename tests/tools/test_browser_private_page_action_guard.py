@@ -7,6 +7,7 @@ import pytest
 from tools import browser_tool
 from tools import browser_tool_eval_policy as bt_eval_policy
 from tools import browser_tool_session as bt_session
+from tools.registry import registry
 
 PRIVATE_URL = "http://169.254.169.254/latest/meta-data/"
 
@@ -118,3 +119,23 @@ def test_browser_back_returns_url_when_landed_page_is_public(monkeypatch):
     out = json.loads(browser_tool.browser_back(task_id="task-1"))
 
     assert out == {"success": True, "url": "https://example.com/"}
+
+
+@pytest.mark.parametrize("include_data", [False, True])
+def test_browser_back_preserves_failed_command_with_nullable_data(monkeypatch, include_data):
+    """A blocking native dialog returns data:null; expose its error rather than crashing."""
+    failure = {"success": False, "error": "A JavaScript confirm dialog is blocking the page"}
+    if include_data:
+        failure["data"] = None
+    commands = []
+
+    def failed_back(task_id, command, args):
+        commands.append((task_id, command, args))
+        return failure
+
+    monkeypatch.setattr(bt_session, "_run_browser_command", failed_back)
+    monkeypatch.setattr(browser_tool, "_blocked_private_page", lambda *_args: pytest.fail("No landed page after failure"))
+    out = json.loads(registry.dispatch("browser_back", {}, task_id="task-1"))
+
+    assert out == {"success": False, "error": failure["error"]}
+    assert commands == [("task-1", "back", [])]
