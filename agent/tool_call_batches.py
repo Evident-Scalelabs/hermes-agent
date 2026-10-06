@@ -8,7 +8,6 @@ from agent.transports.types import ToolCall
 from tools.connectors import is_connector_name
 from tools.connectors.gateway.config import MAX_CALLS_PER_DISPATCH
 from tools.tool_search_catalog import TOOL_CALL_NAME
-from tools.tool_search_validation import normalize_tool_call_entries
 
 
 def expand_local_tool_batches(tool_calls: list, *, provider_data: dict | None = None) -> list:
@@ -26,12 +25,19 @@ def expand_local_tool_batches(tool_calls: list, *, provider_data: dict | None = 
             continue
         try:
             args = call.function.arguments
-            entries, error = normalize_tool_call_entries(json.loads(args) if isinstance(args, str) else args)
+            args = json.loads(args) if isinstance(args, str) else args
+            entries = args.get("calls")
+            if isinstance(entries, str):
+                entries = json.loads(entries)
+            if isinstance(entries, dict):
+                entries = [entries]
         except (TypeError, ValueError, AttributeError):
-            entries, error = [], True
-        if (error or not 1 < len(entries) <= MAX_CALLS_PER_DISPATCH
-                or all(is_connector_name(entry["name"]) for entry in entries)):
-            # Leave malformed/oversized requests intact for the dispatcher's error.
+            entries = None
+        if (not isinstance(entries, list) or not 1 < len(entries) <= MAX_CALLS_PER_DISPATCH
+                or all(isinstance(entry, dict) and is_connector_name(str(entry.get("name") or ""))
+                       for entry in entries)):
+            # Each child is validated by its dispatcher; a malformed sibling must
+            # not discard a valid paid result. Keep whole-envelope limits here.
             expanded.append(call)
             continue
         parent_id = coalesce_tool_call_id(call)

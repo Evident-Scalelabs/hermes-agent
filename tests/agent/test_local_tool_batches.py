@@ -56,7 +56,7 @@ for line in sys.stdin:
         shutdown_mcp_servers()
 
 
-@pytest.mark.parametrize("mode", ["allow", "block", "scope", "schema", "interrupt"])
+@pytest.mark.parametrize("mode", ["allow", "block", "scope", "schema", "interrupt", "malformed"])
 def test_local_batch_runs_once_per_entry_through_agent_and_persists_pairs(mcp_server, mode):
     from run_agent import AIAgent
 
@@ -74,6 +74,8 @@ def test_local_batch_runs_once_per_entry_through_agent_and_persists_pairs(mcp_se
     entries = [{"name": name, "arguments": {"key": "value"}} for name in names]
     if mode == "schema":
         entries[1]["arguments"] = {}
+    if mode == "malformed":
+        entries[1] = {"name": "", "arguments": {}}
     if mode == "scope":
         agent.disabled_toolsets = ["mcp-batchfixture"]
     agent.client.chat.completions.create.side_effect = [_response([_call(entries)]), _response()]
@@ -105,7 +107,8 @@ def test_local_batch_runs_once_per_entry_through_agent_and_persists_pairs(mcp_se
     expected = {"allow": ["read_alpha", "read_beta"], "scope": []}.get(mode, ["read_alpha"])
     executed = [json.loads(line) for line in call_log.read_text(encoding="utf-8-sig").splitlines()] if call_log.exists() else []
     assert executed == expected
-    assert hooks == ([] if mode == "scope" else names[:1] if mode in {"schema", "interrupt"} else names)
+    assert hooks == ([] if mode == "scope" else [names[0], "tool_call"] if mode == "malformed"
+                     else names[:1] if mode in {"schema", "interrupt"} else names)
     messages = result["messages"]
     assistant = next(m for m in messages if m.get("tool_calls"))
     results = [m for m in messages if m["role"] == "tool"]
@@ -114,7 +117,7 @@ def test_local_batch_runs_once_per_entry_through_agent_and_persists_pairs(mcp_se
     assert [m["tool_call_id"] for m in results] == ids
     assert ("not available" if mode == "scope" else "read_alpha-result") in results[0]["content"]
     expected_second = {"allow": "read_beta-result", "block": "blocked by test policy",
-                       "scope": "not available", "schema": "key", "interrupt": "skipped"}[mode]
+                       "scope": "not available", "schema": "key", "interrupt": "skipped", "malformed": "requires a 'name'"}[mode]
     assert expected_second in results[1]["content"]
     # Both calls are durable before the first result, and every result is flushed.
     before_results = next(s for s in snapshots if any(m.get("tool_calls") for m in s))
@@ -129,7 +132,7 @@ def test_expansion_preserves_connector_batches_and_rejects_bad_envelopes():
 
     local = {"name": "mcp__fixture__read", "arguments": {"path": "alpha"}}
     remote = {"name": "connectors__drive__list", "arguments": {}}
-    for entries in ([remote, remote], [local], [local] * (MAX_CALLS_PER_DISPATCH + 1), [local, {}]):
+    for entries in ([remote, remote], [local], [local] * (MAX_CALLS_PER_DISPATCH + 1)):
         call = _call(entries)
         original = call.function.arguments
         assert expand_local_tool_batches([call]) == [call]

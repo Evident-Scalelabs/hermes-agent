@@ -351,7 +351,7 @@ class TestBridgeDispatch:
         result = dispatch_tool_search({}, current_tool_defs=[])
         assert "error" in json.loads(result)
 
-    def test_tool_search_rejects_empty_and_overcap_queries(self):
+    def test_tool_search_rejects_empty_and_preserves_larger_local_searches(self):
         import tools.tool_search as tool_search
 
         cfg = tool_search.ToolSearchConfig.from_raw({})
@@ -362,7 +362,8 @@ class TestBridgeDispatch:
         over = ["q"] * (tool_search._MAX_QUERIES_PER_CALL + 1)
         parsed = json.loads(tool_search.dispatch_tool_search(
             {"queries": over}, current_tool_defs=[], config=cfg))
-        assert "error" in parsed
+        assert "error" not in parsed
+        assert len(parsed["results"]) == len(over)
 
     def test_empty_search_keeps_connected_sources_discoverable(self):
         from tools.registry import registry

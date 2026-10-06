@@ -29,10 +29,8 @@ from tools.connectors.search import (
     connections_in_scope, connector_entries_by_group, connectors_unavailable, remote_schemas_for)
 
 logger = logging.getLogger("tools.tool_search")
-# Bound the work one bridge call requests. Search is capped at the gateway's
-# own limit: the connector search route answers 7 use_cases per request and
-# returns HTTP 502 for 8 or more (measured 2026-09-09), and one local call
-# maps to one gateway request. Describe has no such remote limit.
+# The connector gateway answers at most 7 use_cases per request (8 returns
+# HTTP 502). Chunk there; the same remote limit must not reject local searches.
 _MAX_QUERIES_PER_CALL = 7
 _MAX_DESCRIBE_NAMES_PER_CALL = 10
 
@@ -423,7 +421,7 @@ def _available_source_summary(catalog: List[CatalogEntry]) -> List[Dict[str, Any
     return sorted(rows + hidden_declared_sources(), key=lambda row: row["name"])
 
 
-def _string_list_arg(args: Dict[str, Any], key: str, *, dedupe: bool, max_items: int,
+def _string_list_arg(args: Dict[str, Any], key: str, *, dedupe: bool, max_items: Optional[int],
                      retry_hint: str) -> Tuple[Optional[List[str]], Optional[str]]:
     """Read a list-of-strings bridge argument -> ``(items, error_json)``. A bare string (a
     common model slip) is a one-item list; rejects non-lists, all-blank lists, > ``max_items``."""
@@ -438,7 +436,7 @@ def _string_list_arg(args: Dict[str, Any], key: str, *, dedupe: bool, max_items:
             out.append(text)
     if not out:
         return None, tool_error(f"{key} is required and must contain at least one non-empty string")
-    if len(out) > max_items:
+    if max_items is not None and len(out) > max_items:
         return None, tool_error(f"too many {key}: {len(out)} > max {max_items}. {retry_hint}")
     return out, None
 
@@ -447,7 +445,7 @@ def dispatch_tool_search(args: Dict[str, Any], *, current_tool_defs: List[Dict[s
                          config: Optional[ToolSearchConfig] = None,
                          connector_search: Optional[Any] = None) -> str:
     config = config or load_config()
-    queries, err = _string_list_arg(args, "queries", dedupe=False, max_items=_MAX_QUERIES_PER_CALL,
+    queries, err = _string_list_arg(args, "queries", dedupe=False, max_items=None,
                                     retry_hint="Retry with fewer, more targeted queries.")
     if err:
         return err
@@ -458,8 +456,12 @@ def dispatch_tool_search(args: Dict[str, Any], *, current_tool_defs: List[Dict[s
     remote_entries: List[List[CatalogEntry]] = [[] for _ in queries]
     hosted_failure: Optional[str] = None
     if connections_in_scope(current_tool_defs):
-        remote_entries, hosted_failure = connector_entries_by_group(
-            queries, connector_search=connector_search)
+        remote_entries = []
+        for start in range(0, len(queries), _MAX_QUERIES_PER_CALL):
+            groups, failure = connector_entries_by_group(
+                queries[start:start + _MAX_QUERIES_PER_CALL], connector_search=connector_search)
+            remote_entries.extend(groups)
+            hosted_failure = hosted_failure or failure
     results: List[Dict[str, Any]] = []
     tools_map: Dict[str, Dict[str, Any]] = {}
     available_sources = _available_source_summary(catalog)
