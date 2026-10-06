@@ -62,6 +62,20 @@ def retired_browser_backend_error() -> Optional[str]:
     return None
 
 
+def set_browser_use_mode(enabled: bool) -> None:
+    """``/browser use [off]`` on every surface: either request persists ``browser.backend: off``."""
+    from hermes_cli.config import load_config, save_config
+    from tools.registry import invalidate_check_fn_cache
+    config = load_config()
+    config.setdefault("browser", {})["backend"] = BACKEND_DISABLED
+    save_config(config)
+    invalidate_check_fn_cache()
+
+
+def stop_harness_daemons() -> None:
+    """No-op: no Browser Use harness daemon is ever started."""
+
+
 def is_legacy_browser_use_cloud_config(browser_cfg: dict) -> bool:
     """Always False: Browser Use cloud CLI mode is retired."""
     return False

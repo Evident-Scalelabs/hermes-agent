@@ -51,6 +51,12 @@ class TestBrowserUseRetired:
         monkeypatch.setattr(bu_cli, "get_browser_backend", lambda: "off")
         assert bu_cli.retired_browser_backend_error() is None
 
+    def test_use_request_on_any_surface_persists_off(self):
+        from hermes_cli.config import load_config
+        bu_cli.set_browser_use_mode(True)
+        assert load_config()["browser"]["backend"] == bu_cli.BACKEND_DISABLED
+        assert bu_cli.is_browser_use_cli_mode() is False
+
     def test_toolsets_exclude_browser_exec(self):
         from toolsets import TOOLSETS, _HERMES_CORE_TOOLS
         assert "browser_exec" not in _HERMES_CORE_TOOLS

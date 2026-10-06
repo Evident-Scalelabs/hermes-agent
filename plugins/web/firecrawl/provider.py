@@ -122,9 +122,10 @@ class _KeylessFirecrawlClient:
 
     search = lambda self, *, query, limit=5: self._post("/v2/search", {"query": query, "limit": limit})  # noqa: E731
     def scrape(self, *, url, formats, **options):
+        # ``timeout`` is the SDK's server-side deadline (ms); the v2 REST payload takes the same field.
         names = {"only_main_content": "onlyMainContent", "max_age": "maxAge"}
         return self._post("/v2/scrape", {"url": url, "formats": formats,
-            **{names.get(key, key): value for key, value in options.items()}})
+            **{names.get(key, key): value for key, value in options.items() if value is not None}})
 
 
 def _get_firecrawl_gateway_url() -> str:
@@ -263,7 +264,8 @@ async def _scrape_one(url: str, formats: List[str], format: Optional[str]) -> Di
         try:
             options = _wt()._load_web_config().get("firecrawl", {})
             options = {key: options[key] for key in ("only_main_content", "max_age") if key in options} if isinstance(options, dict) else {}
-            scrape_result = await asyncio.wait_for(asyncio.to_thread(_get_firecrawl_client().scrape, url=url, formats=formats, **options), timeout=60)
+            # Server-side deadline (ms) matches the 60 s client wait; the API default is 30 s (#43272).
+            scrape_result = await asyncio.wait_for(asyncio.to_thread(_get_firecrawl_client().scrape, url=url, formats=formats, timeout=60_000, **options), timeout=60)
         except asyncio.TimeoutError:
             logger.warning("Firecrawl scrape timed out for %s", url)
             return _error_entry(url, _SCRAPE_TIMEOUT_MSG)
@@ -331,34 +333,10 @@ class FirecrawlWebSearchProvider(BaseWebSearchProvider):
             for url in urls
         ]
 
+
     def get_setup_schema(self) -> Dict[str, Any]:
         return setup_schema(
             "Firecrawl", "keyless/paid · optional gateway",
             "Full search + extract; supports keyless cloud, direct API, and Nous tool-gateway routing.",
             "FIRECRAWL_API_KEY", "Firecrawl API key (optional; blank = keyless cloud or self-hosted)", "https://docs.firecrawl.dev/introduction",
         )
-
-
-# ---- BEGIN PLUGIN-COMPAT (revert-scheduled; see COMPAT_MANIFEST.md) ----
-# Names external plugins imported from this module before the Sep 2026 decomposition.
-# Internal code MUST NOT use these (scripts/check_compat_pointers.py fails CI if it does).
-# The whole block is removed by reverting the commit that added it.
-from typing import NoReturn  # noqa: F401,E402
-from typing import TYPE_CHECKING  # noqa: F401,E402
-import os  # noqa: F401,E402
-
-
-_PLUGIN_COMPAT_LAZY = {
-    'WebSearchProvider': ('agent.web_search_provider', 'WebSearchProvider'),
-}
-
-
-def __getattr__(name):  # PEP 562 — lazy so no import cycles
-    target = _PLUGIN_COMPAT_LAZY.get(name)
-    if target is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    import importlib
-    from hermes_cli.plugin_compat import warn_once
-    warn_once(__name__, name, *target)
-    return getattr(importlib.import_module(target[0]), target[1])
-# ---- END PLUGIN-COMPAT ----
