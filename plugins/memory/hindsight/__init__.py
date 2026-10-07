@@ -218,7 +218,11 @@ RECALL_SCHEMA = {
                    "properties": {
                        "query": {"type": "string", "description": "What to search for."},
                        "view": {"type": "string", "enum": ["default", "sources"],
-                                "description": "default preserves configured recall; sources returns original facts and bounded source chunks in the same scope for checking qualifications."},
+                                "description": "default returns consolidated observations; sources returns original facts and short source chunks for checking one specific claim."},
+                       "tags": {"type": "array", "items": {"type": "string"},
+                                "description": "Narrow to memories carrying all of these tags (e.g. topic:client). The bank's own scope always applies."},
+                       "max_tokens": {"type": "integer", "minimum": 128,
+                                      "description": "Result budget; capped by configuration. Ask small (about 1500) and narrow."},
                    }},
 }
 
@@ -251,6 +255,8 @@ def _load_config() -> dict:
         # Internal oneshot transport of the existing native setting; never persisted.
         "recall_sync": get_secret("HINDSIGHT_RECALL_SYNC", "") == "true",
         "auto_retain": get_secret("HINDSIGHT_AUTO_RETAIN", "") != "false",
+        # A managed single writer owns this bank; the agent reads only.
+        "retain_tool": get_secret("HINDSIGHT_RETAIN_TOOL", "") != "false",
         "recall_query": get_secret("HINDSIGHT_RECALL_QUERY", ""),
         "recall_tags": _normalize_retain_tags(get_secret("HINDSIGHT_RECALL_TAGS", "")),
         "recall_tags_match": get_secret("HINDSIGHT_RECALL_TAGS_MATCH", "") or "any",
@@ -760,6 +766,7 @@ class HindsightMemoryProvider(MemoryProvider):
     def _apply_retain_policy(self, cfg: dict) -> None:
         """Pure-config retain knobs (no env/secret reads; ``{}`` yields the defaults)."""
         self._auto_retain = cfg.get("auto_retain", True)
+        self._retain_tool = cfg.get("retain_tool", True)
         self._retain_every_n_turns = max(1, int(cfg.get("retain_every_n_turns", 1)))
         self._retain_context = cfg.get("retain_context", _RETAIN_CONTEXT_DEFAULT)
         self._retain_async = cfg.get("retain_async", True)
@@ -866,7 +873,10 @@ class HindsightMemoryProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         mode = self._memory_mode if self._memory_mode in _SYSTEM_PROMPT_TAILS else "hybrid"
         label = "" if mode == "hybrid" else f" ({mode} mode)"
-        return f"# Hindsight Memory\nActive{label}. Bank: {self._bank_id}, budget: {self._budget}.\n{_SYSTEM_PROMPT_TAILS[mode]}"
+        tail = _SYSTEM_PROMPT_TAILS[mode]
+        if not self._retain_tool:
+            tail = tail.replace(", hindsight_reflect for synthesis, hindsight_retain to store facts.", " and hindsight_reflect for synthesis.")
+        return f"# Hindsight Memory\nActive{label}. Bank: {self._bank_id}, budget: {self._budget}.\n{tail}"
 
     # -- recall ------------------------------------------------------------------
 
@@ -878,16 +888,21 @@ class HindsightMemoryProvider(MemoryProvider):
             logger.debug("Prefetch: skipped (%s)", why)
         return why is not None
 
-    def _recall(self, query: str, *, sources: bool = False, prefetch: bool = False) -> dict:
-        kwargs: dict = {"bank_id": self._bank_id, "query": query, "budget": self._budget, "max_tokens": self._recall_max_tokens}
-        if self._recall_tags:
-            kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match)
+    def _recall(self, query: str, *, sources: bool = False, prefetch: bool = False,
+                tags: list[str] | None = None, max_tokens: int | None = None) -> dict:
+        budget = min(max_tokens or self._recall_max_tokens, self._recall_max_tokens)
+        kwargs: dict = {"bank_id": self._bank_id, "query": query, "budget": self._budget, "max_tokens": budget}
+        if self._recall_tags or tags:
+            # Extra tags only narrow: managed scope tags stay and every tag must match.
+            kwargs.update(tags=list(dict.fromkeys([*(self._recall_tags or []), *(tags or [])])),
+                          tags_match="all_strict" if tags else self._recall_tags_match)
         if self._recall_types:
             kwargs["types"] = self._recall_types
-        kwargs.update(include_source_facts=True, max_source_facts_tokens=1024)
+        kwargs.update(include_source_facts=True, max_source_facts_tokens=min(1024, budget))
         if sources:
-            kwargs.update(types=["world", "experience"], max_tokens=4096,
-                          include_chunks=True, max_chunk_tokens=2048)
+            # Checking one claim needs its original wording, not a corpus dump.
+            kwargs.update(types=["world", "experience"], max_tokens=min(budget, 2048), include_source_facts=False,
+                          include_chunks=True, max_chunk_tokens=1024)
         if prefetch:
             # Automatic context is a small reading aid, not a provenance dump.
             # Explicit recall keeps the full native attribution/source contract.
@@ -900,7 +915,7 @@ class HindsightMemoryProvider(MemoryProvider):
                     "id", "text", "type", "document_id", "occurred_start", "occurred_end", "tags",
                 )} for result in response["results"]],
                 "support_completeness": "not_loaded",
-                "authority": "Historical advice, not current measurement evidence. Use hindsight_recall(view='sources') with a targeted question to verify original wording, dates and limitations before relying on a material claim.",
+                "authority": "Historical advice, not current measurement evidence. Current evidence governs; to rely on one specific material claim, check it with a narrow hindsight_recall question.",
             }
         facts = response.get("source_facts") or {}
         missing = sorted({fact_id for result in response["results"]
@@ -911,7 +926,7 @@ class HindsightMemoryProvider(MemoryProvider):
         if sources:
             chunks = response.get("chunks") or {}
             response.update(
-                view="sources", source_chunk_budget_tokens=2048,
+                view="sources", source_chunk_budget_tokens=1024,
                 # The pinned SDK cannot expose all native truncation flags. Even
                 # a returned chunk needs interpretation against its original scope.
                 source_support_status="unverified",
@@ -1135,9 +1150,13 @@ class HindsightMemoryProvider(MemoryProvider):
     # -- tools -------------------------------------------------------------------
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [] if self._memory_mode == "context" else [RETAIN_SCHEMA, RECALL_SCHEMA, REFLECT_SCHEMA]
+        if self._memory_mode == "context":
+            return []
+        return [RETAIN_SCHEMA, RECALL_SCHEMA, REFLECT_SCHEMA] if self._retain_tool else [RECALL_SCHEMA, REFLECT_SCHEMA]
 
     def _tool_retain(self, args: dict) -> dict:
+        if not self._retain_tool:
+            raise ValueError("This bank has a managed writer; submit learning through the task's learning tool")
         extra = args.get("metadata", {})
         if not isinstance(extra, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in extra.items()):
             raise ValueError("metadata must contain only string keys and values")
@@ -1172,9 +1191,17 @@ class HindsightMemoryProvider(MemoryProvider):
         view = args.get("view", "default")
         if view not in ("default", "sources"):
             raise ValueError("view must be default or sources")
-        if view == "sources" and set(args) - {"query", "view"}:
-            raise ValueError("Source recall accepts only query and view; bank and scope are managed")
-        return self._recall(query, sources=True) if view == "sources" else self._recall(query)
+        if set(args) - {"query", "view", "tags", "max_tokens"}:
+            raise ValueError("Recall accepts query, view, tags and max_tokens; bank, types and scope are managed")
+        tags = args.get("tags")
+        if tags is not None and (not isinstance(tags, list) or not tags
+                                 or not all(isinstance(t, str) and t.strip() for t in tags)):
+            raise ValueError("tags must be a nonempty list of strings")
+        limit = args.get("max_tokens")
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 128):
+            raise ValueError("max_tokens must be an integer of at least 128")
+        return self._recall(query, sources=view == "sources", tags=[t.strip() for t in tags] if tags else None,
+                            max_tokens=limit)
 
     def _tool_reflect(self, args: dict) -> str:
         query = args["query"]

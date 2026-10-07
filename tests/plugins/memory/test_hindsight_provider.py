@@ -2014,7 +2014,8 @@ def test_source_view_uses_pinned_client_and_preserves_partial_originals(provider
         request = client._memory_api.recall_memories.call_args.args[1]
         assert request.types == ["world", "experience"]
         assert request.tags == ["scope:site"] and request.tags_match == "all_strict"
-        assert request.max_tokens == 4096 and request.include.chunks.max_tokens == 2048
+        assert request.max_tokens == 2048 and request.include.chunks.max_tokens == 1024
+        assert request.include.source_facts is None
         assert result["chunks"]["chunk"]["text"] == payload["chunks"]["chunk"]["text"]
         assert result["results"][0]["mentioned_at"].startswith("2026-09-24")
         assert result["results"][0]["occurred_start"].startswith("2026-10-02")
@@ -2092,3 +2093,27 @@ def test_task_query_env_stays_with_profile_a_b_a(tmp_path, monkeypatch):
         finally:
             p.shutdown()
             reset_secret_scope(token)
+
+
+def test_recall_tags_only_narrow_the_managed_scope_and_budget_is_capped(provider_with_config):
+    p = provider_with_config(recall_tags=["scope:site"], recall_tags_match="all_strict", recall_max_tokens=4096)
+    p._client.arecall.return_value = SimpleNamespace(model_dump=lambda **kwargs: {"results": []})
+    p.handle_tool_call("hindsight_recall", {"query": "goals", "tags": ["topic:client"], "max_tokens": 1500})
+    request = p._client.arecall.call_args.kwargs
+    assert request["tags"] == ["scope:site", "topic:client"] and request["tags_match"] == "all_strict"
+    assert request["max_tokens"] == 1500 and request["types"] == ["observation"]
+    p.handle_tool_call("hindsight_recall", {"query": "goals", "max_tokens": 99999})
+    assert p._client.arecall.call_args.kwargs["max_tokens"] == 4096
+    p.handle_tool_call("hindsight_recall", {"query": "exact claim", "view": "sources", "tags": ["topic:client"]})
+    sources = p._client.arecall.call_args.kwargs
+    assert sources["tags"] == ["scope:site", "topic:client"] and sources["max_tokens"] == 2048
+    for bad in ({"tags": "topic:client"}, {"tags": [""]}, {"max_tokens": 10}, {"types": ["world"]}):
+        assert "error" in json.loads(p.handle_tool_call("hindsight_recall", {"query": "goals", **bad}))
+
+
+def test_managed_writer_bank_hides_and_refuses_the_retain_tool(provider_with_config):
+    p = provider_with_config(retain_tool=False)
+    assert {schema["name"] for schema in p.get_tool_schemas()} == {"hindsight_recall", "hindsight_reflect"}
+    assert "hindsight_retain" not in p.system_prompt_block()
+    assert "error" in json.loads(p.handle_tool_call("hindsight_retain", {"content": "fact"}))
+    p._client.aretain_batch.assert_not_called()
