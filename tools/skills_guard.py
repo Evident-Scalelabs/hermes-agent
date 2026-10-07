@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 
-SCANNER_VERSION = "skills-guard-v8"
+SCANNER_VERSION = "skills-guard-v9"
 
 # NVIDIA-verified skills each ship a signed `skill.oms.sig` + governance `skill-card.md`.
 TRUSTED_REPOS = {"openai/skills", "anthropics/skills", "huggingface/skills", "NVIDIA/skills"}
@@ -178,11 +178,12 @@ THREAT_PATTERNS = [
      "py_read_secrets_file", "critical", "exfiltration", "Python reads a known credential file"),
     # ── Exfiltration: programmatic env access ──
     (r'printenv|env\s*\|', "dump_all_env", "high", "exfiltration", "dumps all environment variables"),
-    # Bare `os.environ` (dump/iteration) is suspicious; ANY `.get("<name>")` form is exempt — plain config
+    # Bare `os.environ` (dump/iteration) is suspicious; literal-key assignment writes configuration,
+    # not an environment read. A later read on the same line still matches. ANY `.get("<name>")` is exempt — plain config
     # reads, with secret-shaped names scored medium by python_environ_get_secret below (a blanket high here
     # would swamp that). `^[^#\n]*` skips lines with a '#' anywhere before it (full-line or inline comment);
     # scan_file()'s docstring pre-filter skips triple-quoted prose.
-    (r'^[^#\n]*os\.environ\b(?!\s*\.get\s*\()',
+    (r'^[^#\n]*os\.environ\b(?!\s*\.get\s*\(|\s*\[\s*["\'][^"\']+["\']\s*\]\s*=(?!=))',
      "python_os_environ", "high", "exfiltration", "accesses os.environ outside comments/docstrings (potential env dump)"),
     (r'os\.environ\s*\.get\s*\(\s*["\'][^"\']*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)',
      "python_environ_get_secret", "medium", "exfiltration", "reads secret via os.environ.get() (normal API-key access; informational)"),
