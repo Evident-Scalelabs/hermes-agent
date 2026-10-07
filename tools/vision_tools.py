@@ -1017,11 +1017,8 @@ async def _handle_vision_analyze(args: Dict[str, Any], **kw: Any) -> str:
         return await _vision_analyze_native(image_url, question, task_id=task_id, region=region)
 
     # Legacy path: aux LLM describes the image and we return its text.
-    full_prompt = (
-        "Fully describe and explain everything about this image, then answer the "
-        f"following question:\n\n{question}")
     model = _configured_aux_model(("vision",), ("AUXILIARY_VISION_MODEL",))
-    return await vision_analyze_tool(image_url, full_prompt, model, task_id=task_id, region=region)
+    return await vision_analyze_tool(image_url, question, model, task_id=task_id, region=region)
 
 
 registry.register(
