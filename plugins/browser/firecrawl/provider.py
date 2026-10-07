@@ -65,5 +65,6 @@ class FirecrawlBrowserProvider(CloudBrowserProvider):
             "session_name": session_name,
             "bb_session_id": data["id"],
             "cdp_url": data["cdpUrl"],
+            "expires_at": data.get("expiresAt"),
             "features": {"firecrawl": True},
         }

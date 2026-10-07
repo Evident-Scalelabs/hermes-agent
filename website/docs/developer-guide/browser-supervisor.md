@@ -78,6 +78,11 @@ frozen snapshot without awaiting.
   consecutive failures — one final warning, the thread exits and the registry
   entry is dropped. A dead local Chrome (its task finished) therefore never leaves
   a retrying thread behind; the next browser call starts a fresh supervisor.
+- **Provider expiry:** cloud sessions carry their provider's expiry through the
+  existing `expires_at` metadata. Once that deadline passes, a disconnected
+  supervisor stops without redialing the expired URL or creating a new session.
+  Local endpoints and providers without expiry metadata keep the bounded retry
+  behavior above; expiry is never inferred from a 401 or page content.
 - **Rebind:** if the CDP URL changes (user reconnects to a new Chrome), the
   old supervisor is stopped and a fresh one started — state is never reused
   across endpoints.

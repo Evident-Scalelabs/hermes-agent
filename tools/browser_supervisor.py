@@ -102,12 +102,14 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
     are sync, thread-safe bridges onto that loop; all CDP I/O lives on the loop."""
 
     def __init__(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
-                 dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, target_id: Optional[str] = None) -> None:
+                 dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, target_id: Optional[str] = None,
+                 expires_at: Optional[float] = None) -> None:
         if dialog_policy not in _VALID_POLICIES:
             raise ValueError(f"Invalid dialog_policy {dialog_policy!r}; must be one of {sorted(_VALID_POLICIES)}")
         self.task_id = task_id
         self.cdp_url = cdp_url
         self.target_id = target_id
+        self.expires_at = expires_at
         self.dialog_policy = dialog_policy
         self.dialog_timeout_s = float(dialog_timeout_s)
 
@@ -369,6 +371,18 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
             SUPERVISOR_REGISTRY._pop(self.task_id)
         return True
 
+    def _stop_if_provider_expired(self) -> bool:
+        """A provider deadline proves the cached endpoint cannot accept another connection."""
+        from tools.browser_tool_lifecycle import _session_has_expired
+
+        if not _session_has_expired({"expires_at": self.expires_at}):
+            return False
+        self._fail_start(ConnectionError("Cloud browser session expired"))
+        logger.info("CDP supervisor %s: provider session expired; stopping", self.task_id)
+        if SUPERVISOR_REGISTRY.get(self.task_id) is self:
+            SUPERVISOR_REGISTRY._pop(self.task_id)
+        return True
+
     async def _run(self) -> None:
         """Top-level reconnecting supervisor coroutine. Browserbase tears down the CDP
         socket whenever a short-lived client (agent-browser's per-command CDP client)
@@ -379,9 +393,13 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         from agent.proxy_bypass import loopback_connect_kwargs
         connect_kwargs = {"max_size": 50 * 1024 * 1024, **loopback_connect_kwargs(self.cdp_url)}
         while not self._stop_requested:
+            if self._stop_if_provider_expired():
+                return
             try:
                 self._ws = await asyncio.wait_for(websockets.connect(self.cdp_url, **connect_kwargs), timeout=10.0)
             except Exception as e:
+                if self._stop_if_provider_expired():
+                    return
                 if self._fail_start(e):
                     return
                 reconnect_failures += 1
@@ -408,6 +426,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
                 self._ready_event.set()
                 await reader_task
             except BaseException as e:
+                if self._stop_if_provider_expired():
+                    return
                 if self._fail_start(e):
                     raise
                 reconnect_failures += 1
@@ -527,7 +547,7 @@ class _SupervisorRegistry:
 
     def get_or_start(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
                      dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, start_timeout: float = 15.0,
-                     target_id: Optional[str] = None) -> CDPSupervisor:
+                     target_id: Optional[str] = None, expires_at: Optional[float] = None) -> CDPSupervisor:
         """Idempotently ensure a supervisor runs for ``(task_id, cdp_url)``; one bound to a
         different ``cdp_url`` or unhealthy (dead thread / stopped loop) is stopped and replaced."""
         with self._lock:
@@ -542,7 +562,8 @@ class _SupervisorRegistry:
             existing.stop()
 
         supervisor = CDPSupervisor(task_id=task_id, cdp_url=cdp_url,
-                                   dialog_policy=dialog_policy, dialog_timeout_s=dialog_timeout_s, target_id=target_id)
+                                   dialog_policy=dialog_policy, dialog_timeout_s=dialog_timeout_s,
+                                   target_id=target_id, expires_at=expires_at)
         supervisor.start(timeout=start_timeout)
         with self._lock:
             # Guard against a concurrent get_or_start from another thread.
