@@ -154,6 +154,7 @@ class TestHandleVisionAnalyze:
                 await _handle_vision_analyze(
                     {"image_url": "https://example.com/img.png", "question": "test"}
                 )
+                assert mock_tool.call_args[0][1] == "test"
                 return mock_tool.call_args[0][2]  # third positional arg
 
         assert await resolve(env_model="custom/model-v1") == "custom/model-v1"
