@@ -470,6 +470,8 @@ class GitHubSource(SkillSource):
         capped 60s — one shared limit zeroes every GitHub tap at once during an index build), 5xx, and
         transport errors with exponential backoff. Terminal rate-limit exhaustion flags the instance so
         an index build fails loud instead of silently shipping zero GitHub skills."""
+        if self._rate_limited:
+            return None
         hdrs = headers if headers is not None else self.auth.get_headers()
         backoff = 1.0
         last_resp: Optional[httpx.Response] = None
@@ -501,8 +503,9 @@ class GitHubSource(SkillSource):
                     if not limited or last_attempt:
                         if limited:  # terminal exhaustion: flag the instance so callers fail loud
                             self._rate_limited = True
-                            logger.warning("GitHub API rate limit exhausted (unauthenticated: 60 req/hr). "
-                                           "Set GITHUB_TOKEN or install the gh CLI to raise the limit to 5,000/hr.")
+                            logger.warning("GitHub API quota exhausted (limit=%s; reset=%s).",
+                                           resp.headers.get("X-RateLimit-Limit", "unknown"),
+                                           resp.headers.get("X-RateLimit-Reset", "unknown"))
                         return resp
                     reset = resp.headers.get("X-RateLimit-Reset", "")
                     retry_after = parse_retry_after_seconds(resp.headers)
