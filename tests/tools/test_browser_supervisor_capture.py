@@ -8,6 +8,7 @@ A real ``CDPSupervisor`` talks to a real local WebSocket server that speaks just
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import threading
 import time
@@ -23,6 +24,9 @@ class _FakeCDP:
         self.frames: list[tuple[int, str, str | None]] = []  # (connection no, method, sessionId)
         self.connections: list = []
         self.url = ""
+        self.hang_capture = False
+        self.hang_attach = False
+        self.late_captures = []
         self.loop = asyncio.new_event_loop()
         ready = threading.Event()
         threading.Thread(target=self._serve, args=(ready,), daemon=True).start()
@@ -48,14 +52,22 @@ class _FakeCDP:
             self.frames.append((conn, method, sid))
             if method == "Test.hang":
                 continue
+            if method == "Target.attachToTarget" and self.hang_attach:
+                continue
+            if method == "Page.captureScreenshot" and self.hang_capture:
+                self.late_captures.append((ws, msg))
+                continue
             if method == "Test.error":
                 await ws.send(json.dumps({"id": msg["id"], "error": {"code": -32000, "message": "boom"}}))
                 continue
             result = {"echo": method, "sessionId": sid, "params": msg.get("params")}
             if method == "Target.getTargets":
-                result = {"targetInfos": [{"targetId": "T1", "type": "page", "url": "about:blank"}]}
+                result = {"targetInfos": [{"targetId": target, "type": "page", "url": "about:blank"}
+                                          for target in ("T1", "T2")]}
             elif method == "Target.attachToTarget":
                 result = {"sessionId": f"S{conn}"}
+            elif method == "Page.captureScreenshot":
+                result = {"data": base64.b64encode(b"native-image").decode()}
             await ws.send(json.dumps({"id": msg["id"], "result": result}))
 
     def drop_current(self) -> None:
@@ -144,3 +156,145 @@ def _raises(fn) -> BaseException | None:
     except BaseException as exc:  # noqa: BLE001 — handed back to the asserting thread
         return exc
     return None
+
+
+def _native_capture_session(monkeypatch, cdp, registry):
+    from tools import browser_supervisor, browser_tool, browser_tool_capture
+
+    session = {"session_name": "owned-native", "features": {"local": True}}
+    active = {"target": "T1"}
+    monkeypatch.setattr(browser_tool, "_active_sessions", {"fixture-local": session})
+    monkeypatch.setattr(browser_tool, "_last_session_key", lambda task: task + "-local")
+    monkeypatch.setattr(browser_supervisor, "SUPERVISOR_REGISTRY", registry)
+    def identity(existing):
+        if not active['target'] or (existing.get('_cdp_target_id') and existing['_cdp_target_id'] != active['target']):
+            raise RuntimeError('Task target unavailable')
+        return cdp.url, active['target'], (cdp.url, active['target'])
+    monkeypatch.setattr(browser_tool_capture, '_existing_capture_target', identity)
+    return session, active
+
+
+def test_optional_screenshot_timeout_keeps_exact_session_and_ignores_late_image(tmp_path, monkeypatch, cdp, registry):
+    from tools import browser_tool
+    from tools.browser_tool_capture import capture_browser_screenshot
+
+    session, _ = _native_capture_session(monkeypatch, cdp, registry)
+    cdp.hang_capture = True
+    path = tmp_path / "late.png"
+    started = time.monotonic()
+    result = capture_browser_screenshot("fixture", path, timeout=3)
+    assert result["code"] == "capture_timeout" and time.monotonic() - started < 4
+    assert not path.exists() and browser_tool._active_sessions["fixture-local"] is session
+    handle = registry.capture("fixture-local")
+    assert handle.is_valid() and registry.get("fixture-local") is None
+    assert not any(method in cdp.methods_on(1) for method in (
+        "Target.createTarget", "Page.enable", "Runtime.enable", "Target.setAutoAttach", "Fetch.enable"))
+    ws, msg = cdp.late_captures[0]
+    late = {"id": msg["id"], "result": {"data": base64.b64encode(b"late-image").decode()}}
+    asyncio.run_coroutine_threadsafe(ws.send(json.dumps(late)), cdp.loop).result(5)
+    assert handle.call("Runtime.evaluate", session_id=handle.page_session_id)["result"]["echo"] == "Runtime.evaluate"
+    assert not path.exists()
+    cdp.hang_capture = False
+    assert capture_browser_screenshot("fixture", tmp_path / "next.png")["success"]
+    assert (tmp_path / "next.png").read_bytes() == b"native-image"
+
+
+def test_optional_screenshot_never_creates_browser_or_captures_missing_target(tmp_path, monkeypatch, cdp, registry):
+    from tools import browser_tool
+    from tools.browser_tool_capture import capture_browser_screenshot
+
+    session, active = _native_capture_session(monkeypatch, cdp, registry)
+    browser_tool._active_sessions.clear()
+    assert not capture_browser_screenshot("fixture", tmp_path / "none.png")["success"]
+    assert not cdp.connections
+    browser_tool._active_sessions["fixture-local"] = session
+    active["target"] = None
+    assert not capture_browser_screenshot("fixture", tmp_path / "missing.png")["success"]
+    assert not cdp.connections and not list(tmp_path.glob("*.png"))
+
+
+def test_optional_screenshot_tracks_local_tab_but_refuses_foreign_pinned_target(tmp_path, monkeypatch, cdp, registry):
+    from tools.browser_tool_capture import capture_browser_screenshot
+
+    session, active = _native_capture_session(monkeypatch, cdp, registry)
+    assert capture_browser_screenshot("fixture", tmp_path / "first.png")["success"]
+    active["target"] = "T2"
+    assert capture_browser_screenshot("fixture", tmp_path / "second.png")["success"]
+    assert registry.get("fixture-local", include_capture_only=True).target_id == "T2"
+    assert (2, "Page.captureScreenshot", "S2") in cdp.frames
+    session["_cdp_target_id"] = "T1"
+    assert not capture_browser_screenshot("fixture", tmp_path / "foreign.png")["success"]
+    assert not (tmp_path / "foreign.png").exists()
+
+
+def test_optional_screenshot_refuses_session_replacement_before_file_write(tmp_path, monkeypatch, cdp, registry):
+    from tools import browser_tool
+    from tools.browser_tool_capture import capture_browser_screenshot
+
+    _native_capture_session(monkeypatch, cdp, registry)
+    cdp.hang_capture = True
+    results = []
+    path = tmp_path / "old.png"
+    worker = threading.Thread(target=lambda: results.append(capture_browser_screenshot("fixture", path)))
+    worker.start()
+    _wait(lambda: bool(cdp.late_captures))
+    browser_tool._active_sessions["fixture-local"] = {"session_name": "replacement"}
+    ws, msg = cdp.late_captures[0]
+    reply = {"id": msg["id"], "result": {"data": base64.b64encode(b"old-image").decode()}}
+    asyncio.run_coroutine_threadsafe(ws.send(json.dumps(reply)), cdp.loop).result(5)
+    worker.join(5)
+    assert not worker.is_alive() and not results[0]["success"] and not path.exists()
+
+
+def test_capture_attachment_timeout_cancels_unregistered_transport_worker(monkeypatch, cdp, registry):
+    from tools import browser_supervisor
+
+    created = []
+    original = browser_supervisor.CDPSupervisor
+    class RecordedSupervisor(original):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            created.append(self)
+    monkeypatch.setattr(browser_supervisor, "CDPSupervisor", RecordedSupervisor)
+    cdp.hang_attach = True
+    with pytest.raises(TimeoutError):
+        registry.get_or_start("fixture", cdp.url, target_id="T1", start_timeout=0.2, capture_only=True)
+    assert registry.get("fixture") is None
+    created[0]._thread.join(5)
+    assert not created[0]._thread.is_alive()
+    assert not any(method in cdp.methods_on(1) for method in ("Target.createTarget", "Fetch.enable"))
+
+
+def test_cleanup_during_capture_attachment_releases_only_that_transport(tmp_path, monkeypatch, cdp, registry):
+    from tools import browser_tool
+    from tools.browser_tool_capture import capture_browser_screenshot
+
+    _native_capture_session(monkeypatch, cdp, registry)
+    start = registry.get_or_start
+    created = []
+    def cleanup_during_attach(*args, **kwargs):
+        transport = start(*args, **kwargs)
+        created.append(transport)
+        browser_tool._active_sessions.clear()
+        return transport
+    monkeypatch.setattr(registry, 'get_or_start', cleanup_during_attach)
+    assert not capture_browser_screenshot('fixture', tmp_path / 'cleaned.png')['success']
+    assert registry.get('fixture-local', include_capture_only=True) is None
+    created[0]._thread.join(5)
+    assert not created[0]._thread.is_alive() and not (tmp_path / 'cleaned.png').exists()
+
+
+def test_capture_never_follows_an_observer_replacement_between_attach_and_pin(tmp_path, monkeypatch, cdp, registry):
+    from tools.browser_tool_capture import capture_browser_screenshot
+
+    _native_capture_session(monkeypatch, cdp, registry)
+    capture = registry.capture
+    replacement = []
+    def replace_then_pin(key, **kwargs):
+        replacement.append(registry.get_or_start(key, cdp.url, target_id='T2'))
+        return capture(key, **kwargs)
+    monkeypatch.setattr(registry, 'capture', replace_then_pin)
+    assert not capture_browser_screenshot('fixture', tmp_path / 'wrong.png')['success']
+    assert registry.get('fixture-local') is replacement[0]
+    assert not any(method == 'Page.captureScreenshot' for _, method, _ in cdp.frames)
+    assert not (tmp_path / 'wrong.png').exists()
