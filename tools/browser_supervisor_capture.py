@@ -42,7 +42,7 @@ class CapturedCDP:
     def is_valid(self) -> bool:
         """True while the captured connection is still the supervisor's live one."""
         sup = self._supervisor
-        return (self._registry.get(self.task_id) is sup and sup._active and not sup._stop_requested
+        return (self._registry.get(self.task_id, include_capture_only=True) is sup and sup._active and not sup._stop_requested
                 and sup._ws is self._ws and self._loop.is_running())
 
     def _invalid(self) -> CapturedCDPInvalid:
@@ -98,7 +98,7 @@ def capture(registry: _SupervisorRegistry, task_id: str, *, timeout: float = 10.
     """Pin the running supervisor for ``task_id``; never starts, reconnects or refocuses one."""
     from tools.browser_supervisor import _LoopUnavailable, _schedule
 
-    found = registry.get(task_id)
+    found = registry.get(task_id, include_capture_only=True)
     loop = found._loop if found is not None else None
     if found is None or loop is None or not loop.is_running():
         raise CapturedCDPInvalid(f"no running browser supervisor for task {task_id!r}")

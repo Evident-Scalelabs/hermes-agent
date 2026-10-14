@@ -275,6 +275,9 @@ class PluginDispatchMixin:
         suppressed, still running for this call id, over the abandoned-worker cap, timed out
         (worker abandoned, never joined), or the worker could not be started. Exceptions
         propagate."""
+        # Additive host metadata: observers budget nested I/O against this same
+        # absolute cap rather than resetting a full timeout on callback entry.
+        kwargs = {**kwargs, "hook_deadline": time.monotonic() + timeout}
         callback_name = getattr(cb, "__name__", repr(cb))
         # Suppression is a fact about the CALLBACK — a hung one must keep its back-off —
         # so that key stays coarse. The gate must instead tell CONCURRENT CALLS apart.

@@ -103,13 +103,14 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
 
     def __init__(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
                  dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, target_id: Optional[str] = None,
-                 expires_at: Optional[float] = None) -> None:
+                 expires_at: Optional[float] = None, capture_only: bool = False) -> None:
         if dialog_policy not in _VALID_POLICIES:
             raise ValueError(f"Invalid dialog_policy {dialog_policy!r}; must be one of {sorted(_VALID_POLICIES)}")
         self.task_id = task_id
         self.cdp_url = cdp_url
         self.target_id = target_id
         self.expires_at = expires_at
+        self.capture_only = capture_only
         self.dialog_policy = dialog_policy
         self.dialog_timeout_s = float(dialog_timeout_s)
 
@@ -130,6 +131,7 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         self._pending_calls: Dict[int, asyncio.Future] = {}
         self._ws: Optional[ClientConnection] = None
         self._page_session_id: Optional[str] = None
+        self._run_task: Optional[asyncio.Task] = None
         # Dialog auto-dismiss watchdog handles (per dialog id) + id generator.
         self._dialog_watchdogs: Dict[str, asyncio.TimerHandle] = {}
         self._dialog_seq = 0
@@ -145,11 +147,11 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         self._thread = threading.Thread(target=self._thread_main, name=f"cdp-supervisor-{self.task_id}", daemon=True)
         self._thread.start()
         if not self._ready_event.wait(timeout=timeout):
-            self.stop()
+            self.stop(timeout=0 if self.capture_only else 5.0)
             raise TimeoutError(f"CDP supervisor did not attach within {timeout}s "
                                f"(cdp_url={_redact_cdp_error_text(self.cdp_url)[:80]}...)")
         if (err := self._start_error) is not None:
-            self.stop()
+            self.stop(timeout=0 if self.capture_only else 5.0)
             # ``err`` is a raw ``websockets`` exception embedding the full cdp_url (token /
             # userinfo): re-raise redacted, ``from None`` so the traceback chain leaks nothing.
             raise RuntimeError(f"CDP supervisor failed to start: {_redact_cdp_error_text(err)}") from None
@@ -158,6 +160,15 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         """Cancel the supervisor task and join the thread."""
         self._stop_requested = True
         loop = self._loop
+        if self.capture_only:
+            # Capture-only attachment must not outlive its caller's budget in
+            # connect/attach or enter the observer's reconnect loop.
+            if loop is not None and loop.is_running() and self._run_task is not None:
+                loop.call_soon_threadsafe(self._run_task.cancel)
+            if self._thread is not None:
+                self._thread.join(timeout=timeout)
+            self._set_active(False)
+            return
         if loop is not None and loop.is_running():
             # Close the WebSocket from inside the loop so ``async for raw in self._ws``
             # returns cleanly, ``_run`` hits its ``finally``, THEN the thread exits.
@@ -326,9 +337,10 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         self._loop = loop
         try:
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._run())
+            self._run_task = loop.create_task(self._run())
+            loop.run_until_complete(self._run_task)
         except BaseException as e:  # noqa: BLE001 — propagate via _start_error
-            if not self._fail_start(e):
+            if not self._stop_requested and not self._fail_start(e):
                 logger.warning("CDP supervisor %s crashed: %s", self.task_id, e)
         finally:
             # Cancel + flush remaining tasks before closing the loop to avoid
@@ -430,6 +442,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
                     return
                 if self._fail_start(e):
                     raise
+                if self.capture_only:
+                    return
                 reconnect_failures += 1
                 if self._reconnect_budget_spent(reconnect_failures, e):
                     return
@@ -470,6 +484,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
             page_target = (await self._cdp("Target.createTarget", {"url": "about:blank"}))["result"]
         attach = await self._cdp("Target.attachToTarget", {"targetId": page_target["targetId"], "flatten": True})
         self._page_session_id = sid = attach["result"]["sessionId"]
+        if self.capture_only:
+            return  # Optional image observers must not install dialog/frame interception.
         await self._enable_page_domains(sid, timeout=10.0)
         await self._install_dialog_bridge(sid)
 
@@ -530,9 +546,10 @@ class _SupervisorRegistry:
         self._lock = threading.Lock()
         self._by_task: Dict[str, CDPSupervisor] = {}
 
-    def get(self, task_id: str) -> Optional[CDPSupervisor]:
+    def get(self, task_id: str, *, include_capture_only: bool = False) -> Optional[CDPSupervisor]:
         with self._lock:
-            return self._by_task.get(task_id)
+            found = self._by_task.get(task_id)
+            return found if found is None or include_capture_only or not found.capture_only else None
 
     def _pop(self, task_id: str) -> Optional[CDPSupervisor]:
         with self._lock:
@@ -547,7 +564,8 @@ class _SupervisorRegistry:
 
     def get_or_start(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
                      dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, start_timeout: float = 15.0,
-                     target_id: Optional[str] = None, expires_at: Optional[float] = None) -> CDPSupervisor:
+                     target_id: Optional[str] = None, expires_at: Optional[float] = None,
+                     capture_only: bool = False) -> CDPSupervisor:
         """Idempotently ensure a supervisor runs for ``(task_id, cdp_url)``; one bound to a
         different ``cdp_url`` or unhealthy (dead thread / stopped loop) is stopped and replaced."""
         with self._lock:
@@ -555,23 +573,35 @@ class _SupervisorRegistry:
             if existing is not None:
                 thread, loop = existing._thread, existing._loop
                 healthy = thread is not None and thread.is_alive() and loop is not None and loop.is_running()
-                if existing.cdp_url == cdp_url and existing.target_id == target_id and healthy:
+                if (existing.cdp_url == cdp_url and existing.target_id == target_id and healthy
+                        and (capture_only or not existing.capture_only)):
                     return existing
+                if capture_only and not existing.capture_only:
+                    raise RuntimeError("Optional capture cannot replace the native browser observer")
                 self._by_task.pop(task_id, None)
         if existing is not None:
-            existing.stop()
+            existing.stop(timeout=0 if capture_only else 5.0)
 
         supervisor = CDPSupervisor(task_id=task_id, cdp_url=cdp_url,
                                    dialog_policy=dialog_policy, dialog_timeout_s=dialog_timeout_s,
-                                   target_id=target_id, expires_at=expires_at)
+                                   target_id=target_id, expires_at=expires_at, capture_only=capture_only)
         supervisor.start(timeout=start_timeout)
+        superseded_capture = None
         with self._lock:
             # Guard against a concurrent get_or_start from another thread.
             already = self._by_task.get(task_id)
-            if already is not None and already.cdp_url == cdp_url and already.target_id == target_id:
-                supervisor.stop()
+            if (already is not None and already.cdp_url == cdp_url and already.target_id == target_id
+                    and (capture_only or not already.capture_only)):
+                supervisor.stop(timeout=0 if capture_only else 5.0)
                 return already
+            if capture_only and already is not None and not already.capture_only:
+                supervisor.stop(timeout=0)
+                raise RuntimeError("Native browser observer changed during optional capture attachment")
+            if already is not None and already.capture_only:
+                superseded_capture = already
             self._by_task[task_id] = supervisor
+        if superseded_capture is not None:
+            superseded_capture.stop(timeout=0)
         return supervisor
 
     def stop(self, task_id: str) -> None:
