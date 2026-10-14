@@ -23,37 +23,6 @@ class _FakeLoop:
         return self._running
 
 
-def _make_fake_supervisor(cdp_url: str, *, thread_alive: bool, loop_running: bool):
-    """Build a minimal stand-in for a CDPSupervisor entry in the registry.
-
-    Only the attributes touched by the healthcheck (_thread, _loop, cdp_url)
-    and by the teardown path (stop()) need to exist.
-    """
-
-    if thread_alive:
-        # A thread that is actually running — parks on an Event we never set.
-        hold = threading.Event()
-        t = threading.Thread(target=hold.wait, daemon=True)
-        t.start()
-        # Attach the release hook so the test can let the thread exit.
-        setattr(t, "_release", hold.set)
-    else:
-        # An un-started thread — is_alive() returns False.
-        t = threading.Thread(target=lambda: None)
-
-    stop_calls: list[bool] = []
-
-    fake = SimpleNamespace(
-        cdp_url=cdp_url,
-        target_id=None,
-        _thread=t,
-        _loop=_FakeLoop(loop_running),
-        stop=lambda: stop_calls.append(True),
-    )
-    fake._stop_calls = stop_calls  # type: ignore[attr-defined]
-    return fake
-
-
 @pytest.fixture
 def isolated_registry():
     """A fresh registry instance, independent of the global SUPERVISOR_REGISTRY."""
@@ -69,10 +38,12 @@ def stub_cdp_supervisor(monkeypatch):
     created: list[SimpleNamespace] = []
 
     class _StubSupervisor:
-        def __init__(self, *, task_id, cdp_url, dialog_policy, dialog_timeout_s, target_id=None, expires_at=None):
+        def __init__(self, *, task_id, cdp_url, dialog_policy, dialog_timeout_s,
+                     target_id=None, expires_at=None, capture_only=False):
             self.task_id = task_id
             self.cdp_url = cdp_url
             self.target_id = target_id
+            self.capture_only = capture_only
             self.dialog_policy = dialog_policy
             self.dialog_timeout_s = dialog_timeout_s
             # Healthy by default — real thread, running "loop".
@@ -88,7 +59,7 @@ def stub_cdp_supervisor(monkeypatch):
         def start(self, timeout: float = 15.0) -> None:
             self.start_called = True
 
-        def stop(self) -> None:
+        def stop(self, timeout=5.0) -> None:
             self.stop_called = True
             # Release the parked thread so the process exits cleanly.
             release = getattr(self, "_thread_release", None)
@@ -124,9 +95,10 @@ def test_missing_thread_and_loop_attrs_trigger_recreate(
     broken = SimpleNamespace(
         cdp_url=cdp_url,
         target_id=None,
+        capture_only=False,
         _thread=None,
         _loop=None,
-        stop=lambda: None,
+        stop=lambda timeout=5.0: None,
     )
     isolated_registry._by_task["t4"] = broken
 

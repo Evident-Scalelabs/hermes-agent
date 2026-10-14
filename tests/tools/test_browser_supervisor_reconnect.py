@@ -79,3 +79,43 @@ def test_initial_connect_failure_stays_fatal_for_start(monkeypatch):
     assert isinstance(supervisor._start_error, ConnectionError)
     assert supervisor._ready_event.is_set()
     assert supervisor.snapshot().active is False
+
+
+@pytest.mark.parametrize("drop_with_error", [False, True])
+def test_capture_only_socket_close_stops_without_reconnecting(monkeypatch, drop_with_error):
+    supervisor = bs.CDPSupervisor(task_id="optional-capture", cdp_url="ws://127.0.0.1:9222",
+                                  capture_only=True, target_id="owned-tab")
+    dials, closes = [], []
+
+    class ClosingSocket:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if drop_with_error:
+                raise ConnectionError("capture transport disconnected")
+            raise StopAsyncIteration
+
+        async def close(self):
+            closes.append(True)
+
+    async def connect(*args, **kwargs):
+        dials.append(args)
+        return ClosingSocket()
+
+    async def attach():
+        pass
+
+    async def reconnect_delay(delay):
+        pytest.fail("Optional capture entered the reconnect loop")
+
+    monkeypatch.setattr(websockets, "connect", connect)
+    monkeypatch.setattr(supervisor, "_attach_initial_page", attach)
+    monkeypatch.setattr(bs.asyncio, "sleep", reconnect_delay)
+
+    asyncio.run(supervisor._run())
+
+    assert len(dials) == 1
+    assert closes == [True]
+    assert supervisor._ready_event.is_set()
+    assert supervisor.snapshot().active is False

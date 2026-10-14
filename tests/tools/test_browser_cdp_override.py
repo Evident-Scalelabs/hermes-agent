@@ -64,7 +64,7 @@ class TestResolveCdpOverride:
         assert logged_version_url.startswith("https://cdp.example")
 
     def test_normalizes_provider_returned_http_cdp_url_when_creating_session(self, monkeypatch):
-        import tools.browser_tool as browser_tool
+        from tools import browser_tool
 
         provider = Mock()
         provider.create_session.return_value = {
@@ -98,7 +98,7 @@ class TestResolveCdpOverride:
 
 class TestGetCdpOverride:
     def test_prefers_env_var_over_config(self, monkeypatch):
-        import tools.browser_tool as browser_tool
+        from tools import browser_tool
 
         monkeypatch.setenv("BROWSER_CDP_URL", HTTP_URL)
         monkeypatch.setattr(
@@ -206,21 +206,9 @@ class TestCDPSupervisorTimeoutRedaction:
 
     def _make_timed_out_supervisor(self, cdp_url: str):
         """Return a CDPSupervisor whose start() will time out immediately."""
-        import threading
         from tools.browser_supervisor import CDPSupervisor
 
-        sup = CDPSupervisor.__new__(CDPSupervisor)
-        sup.task_id = "test-task"
-        sup.cdp_url = cdp_url
-        sup._start_error = None
-        sup._stop_requested = False
-        sup._loop = None
-        # _thread = None so the is_alive() early-return guard is skipped.
-        sup._thread = None
-        # _ready_event that never fires so wait() always returns False.
-        never_ready = threading.Event()
-        sup._ready_event = never_ready
-        return sup
+        return CDPSupervisor(task_id="test-task", cdp_url=cdp_url)
 
     def test_timeout_error_redacts_query_token(self):
         cdp_url = "wss://cdp.example/devtools/browser/abc?token=super-secret-999"
@@ -272,17 +260,9 @@ class TestCDPSupervisorStartErrorRedaction:
         start() synchronously populates _start_error and sets the ready event,
         exactly as the real supervisor loop does on a first-connect failure.
         """
-        import threading
         from tools.browser_supervisor import CDPSupervisor
 
-        sup = CDPSupervisor.__new__(CDPSupervisor)
-        sup.task_id = "test-task"
-        sup.cdp_url = cdp_url
-        sup._start_error = None
-        sup._stop_requested = False
-        sup._loop = None
-        sup._thread = None
-        sup._ready_event = threading.Event()
+        sup = CDPSupervisor(task_id="test-task", cdp_url=cdp_url)
 
         def _fake_thread(*args, **kwargs):
             fake = Mock()
@@ -304,7 +284,7 @@ class TestCDPSupervisorStartErrorRedaction:
         err = ValueError(f"{raw} isn't a valid URI: hostname isn't provided")
         try:
             self._run_start_hitting_error(raw, err)
-        except Exception as exc:  # noqa: BLE001 - asserting on the surface
+        except Exception as exc:
             msg = str(exc)
             assert "super-secret-999" not in msg, (
                 "raw token must not appear in the re-raised error message"
@@ -320,7 +300,7 @@ class TestCDPSupervisorStartErrorRedaction:
         err = ValueError(f"{raw} isn't a valid URI: hostname isn't provided")
         try:
             self._run_start_hitting_error(raw, err)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             assert "p4ssw0rd" not in str(exc)
         else:
             raise AssertionError("start() did not re-raise the start error")

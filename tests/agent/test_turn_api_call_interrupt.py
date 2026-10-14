@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from agent.agent_runtime_helpers import _INTERRUPTED_PLACEHOLDER
+from agent.agent_runtime_helpers_placeholders import _INTERRUPTED_PLACEHOLDER
 from agent.repetition_guard import REPETITION_LOOP_INTERRUPTED
 from agent.turn_api_call import handle_api_interrupt
 from agent.turn_retry_state import TurnRetryState
