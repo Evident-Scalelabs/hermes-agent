@@ -2,6 +2,28 @@
 
 Long-term memory with knowledge graph, entity resolution, and multi-strategy retrieval. Supports cloud, local embedded, and local external modes.
 
+## Evident fork compatibility
+
+The v0.22.0 integration retains this provider and the `hindsight` PM extra
+(`hindsight-client==0.6.1`). The official catalog plugin 1.2.2 at
+`f843f173bb41f001e322cc83c917371639e47fbf` is not yet a drop-in replacement:
+
+- Evident dispatch uses scoped environment settings for bank admission, deliberate
+  versus automatic retention, managed-writer read-only tools, and task-focused recall.
+  The official plugin does not read those settings.
+- Ordinary site recall and reflection both require the dispatched strict site tags.
+  The official plugin separates reflection tags from recall tags and leaves reflection
+  unscoped unless separately configured.
+- Existing readers use bounded original-source recall and retention receipts that keep
+  document identity on uncertain writes. The official plugin does not provide that
+  tool contract.
+- The official plugin requires both client and embedded packages at `>=0.10.1,<1`;
+  Evident's external-service image uses the pinned client without an embedded daemon.
+
+Revisit externalization when the same dispatch, source-attribution and write-ownership
+contracts pass through the native plugin loader. Do not change stored banks or launch
+paid retention/synthesis merely to test an update.
+
 ## Requirements
 
 - **Cloud:** API key from [ui.hindsight.vectorize.io](https://ui.hindsight.vectorize.io)

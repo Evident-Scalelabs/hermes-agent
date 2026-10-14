@@ -9,6 +9,9 @@ import pytest
 from tools import browser_use_cli as bu_cli
 from tools.registry import registry
 
+_REAL_RETIRED = bu_cli.retired_browser_backend_error
+_REAL_BACKEND = bu_cli.get_browser_backend
+
 
 class TestBrowserUseRetired:
     def test_cli_mode_always_false(self, monkeypatch):
@@ -32,24 +35,17 @@ class TestBrowserUseRetired:
         err = str(result.get("error") or result)
         assert "retired" in err.lower()
 
-    def test_retired_backend_error_for_unset_and_browser_use(self, monkeypatch):
-        # Undo autouse stubs; exercise the real retired_browser_backend_error.
-        def _retired():
-            backend = bu_cli.get_browser_backend()
-            if backend in ("", "browser-use"):
-                return (
-                    f"browser.backend={backend!r} is retired. Set browser.backend: off to use "
-                    "the built-in browser_* tools (agent-browser)."
-                )
-            return None
-
-        monkeypatch.setattr(bu_cli, "retired_browser_backend_error", _retired)
-        monkeypatch.setattr(bu_cli, "get_browser_backend", lambda: "browser-use")
-        assert "retired" in (bu_cli.retired_browser_backend_error() or "").lower()
-        monkeypatch.setattr(bu_cli, "get_browser_backend", lambda: "")
-        assert "retired" in (bu_cli.retired_browser_backend_error() or "").lower()
-        monkeypatch.setattr(bu_cli, "get_browser_backend", lambda: "off")
-        assert bu_cli.retired_browser_backend_error() is None
+    @pytest.mark.parametrize("backend", ["browser-use", "", "off", False])
+    def test_retired_backend_error_for_configured_controller(self, monkeypatch, backend):
+        monkeypatch.setattr(bu_cli, "retired_browser_backend_error", _REAL_RETIRED)
+        monkeypatch.setattr(bu_cli, "get_browser_backend", _REAL_BACKEND)
+        monkeypatch.setattr("hermes_cli.config.read_raw_config",
+                            lambda: {"browser": {"backend": backend, "cloud_provider": "local"}})
+        result = bu_cli.retired_browser_backend_error()
+        if backend in ("browser-use", ""):
+            assert "retired" in result.lower()
+        else:
+            assert result is None
 
     def test_use_request_on_any_surface_persists_off(self):
         from hermes_cli.config import load_config

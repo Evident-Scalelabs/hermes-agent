@@ -353,7 +353,7 @@ class TestMultiQuerySearch:
         assert result["queries"] == ["post slack message"]
 
     def test_remote_query_cap_chunks_search_without_rejecting_local_work(self, issue_defs, monkeypatch):
-        import tools.tool_search as tool_search
+        from tools import tool_search
 
         monkeypatch.setattr(tool_search, "_MAX_QUERIES_PER_CALL", 2)
         cfg = tool_search.ToolSearchConfig.from_raw({})
@@ -365,15 +365,21 @@ class TestMultiQuerySearch:
         assert "error" not in over
         from types import SimpleNamespace
         batches = []
-        def remote_search(use_cases):
+        call_contexts = []
+        def remote_search(use_cases, *, call=None):
             batches.append(use_cases)
+            call_contexts.append(call)
             return SimpleNamespace(failure=None, payload={"schemas": {}, "results": [
                 {"use_case": case["use_case"], "tools": []} for case in use_cases]})
         queries = ["linear issue", "slack message", "linear create issue"]
+        from tools.connectors.gateway import bridge
+        monkeypatch.setattr(bridge, 'connector_search_hits', remote_search)
+        call = object()
         result = json.loads(tool_search.dispatch_tool_search(
             {"queries": queries}, current_tool_defs=issue_defs + [_td("manage_connections", "Connect apps")],
-            config=cfg, connector_search=remote_search))
+            config=cfg, call=call))
         assert [len(batch) for batch in batches] == [2, 1]
+        assert call_contexts == [call, call]
         assert [row["query"] for row in result["results"]] == queries
         assert "mq_linear_create_issue" in result["results"][2]["matches"]
 
@@ -502,7 +508,7 @@ class TestBatchedDescribe:
         assert "not_found" not in result
 
     def test_empty_and_overcap_names_error(self, issue_defs, monkeypatch):
-        import tools.tool_search as tool_search
+        from tools import tool_search
 
         monkeypatch.setattr(tool_search, "_MAX_DESCRIBE_NAMES_PER_CALL", 2)
         cfg = tool_search.ToolSearchConfig.from_raw({})
@@ -510,7 +516,7 @@ class TestBatchedDescribe:
             {}, current_tool_defs=issue_defs, config=cfg))
         assert "error" in json.loads(tool_search.dispatch_tool_describe(
             {"names": []}, current_tool_defs=issue_defs, config=cfg))
-        over = ["n%d" % i for i in range(3)]
+        over = [f'n{i:d}' for i in range(3)]
         parsed = json.loads(tool_search.dispatch_tool_describe(
             {"names": over}, current_tool_defs=issue_defs, config=cfg))
         assert "error" in parsed

@@ -12,7 +12,7 @@ register tools, install packages, or execute Browser Use code.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ RETIRED_MSG = (
     "Browser Use CLI is retired. Set browser.backend: off and use the built-in "
     "browser_* tools (agent-browser). There is no install or uvx fallback."
 )
-_RETIRED_MSG = RETIRED_MSG  # back-compat alias
 
 
 def _read_browser_cfg() -> dict:
@@ -91,21 +90,21 @@ def default_downgrade_notice() -> Optional[str]:
     return None
 
 
-def _find_cli() -> Optional[List[str]]:
+def _find_cli() -> Optional[list[str]]:
     """Never locate Browser Use — install and uvx paths are closed."""
     return None
 
 
-def install_cli(timeout_s: int = 600) -> Tuple[bool, str]:
+def install_cli(timeout_s: int = 600) -> tuple[bool, str]:
     """Refuse to install the retired Browser Use CLI."""
-    return False, _RETIRED_MSG
+    return False, RETIRED_MSG
 
 
 def browser_exec(code: str, session: str = "", timeout_s: int = 120,
                  task_id: Optional[str] = None, local: bool = False) -> str:
     """Retired entrypoint: always returns an error JSON string."""
     from tools.registry import tool_error
-    return tool_error(_RETIRED_MSG)
+    return tool_error(RETIRED_MSG)
 
 
 # Intentionally no registry.register("browser_exec", ...).
