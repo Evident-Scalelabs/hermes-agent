@@ -907,7 +907,7 @@ def _refresh_cua_driver_after_update() -> None:
 
 def _install_default_tools_after_update() -> None:
     """Give the install its optional default tools: the PM defaults (agent-browser +
-    Chromium, cua-driver). The Browser Use CLI engine (browser-harness) is a venv dependency.
+    Chromium, cua-driver).
 
     Runs at the end of both the installers (via the source completion) and
     ``hermes update``: a source update re-syncs only the venv, so a tool that became

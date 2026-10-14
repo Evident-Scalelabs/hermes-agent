@@ -7,14 +7,11 @@ sidebar_position: 5
 
 # Browser Automation
 
-Hermes Agent includes a full browser automation toolset with multiple backend options:
+This Evident fork uses the native `browser_*` tools, driven by `agent-browser`, with these browser sources:
 
-- **Browser Use cloud mode** via [Browser Use](https://browser-use.com) for managed Chromium with stealth, residential proxies, CAPTCHA solving, and reusable browser profiles
 - **Browserbase cloud mode** via [Browserbase](https://browserbase.com) as an alternative cloud browser provider with anti-bot tooling
-- **Browser Use mode** via the [Browser Use CLI 3.0](https://github.com/browser-use/browser-use), the default browser driver for local Chrome and Browser Use cloud browsers
 - **Firecrawl cloud mode** via [Firecrawl](https://firecrawl.dev) for cloud browsers with built-in scraping
-- **Camofox local mode** via [Camofox](https://github.com/jo-inc/camofox-browser) for local anti-detection browsing (Firefox-based fingerprint spoofing)
-- **Lightpanda local engine** via [Lightpanda](https://lightpanda.io) — a headless browser built from scratch in Zig for machines; instant start up, 16x lower memory and 9x faster than Chrome. Works in Browser Use mode (Hermes spawns it, no Chromium or Node needed) and with the built-in tools (automatic Chrome fallback for actions it doesn't support yet)
+- **Lightpanda local engine** via [Lightpanda](https://lightpanda.io) for text-focused browser automation, with Chromium fallback for graphical operations
 - **Local Chromium-family CDP** — connect browser tools to your own Chrome, Brave, Chromium, or Edge instance using `/browser connect`
 - **Local browser mode** via the `agent-browser` CLI and a local Chromium installation
 
@@ -26,32 +23,29 @@ Pages are represented as **accessibility trees** (text-based snapshots), making 
 
 Key capabilities:
 
-- **Multi-provider cloud execution** — Browser Use, Browserbase, or Firecrawl — no local browser needed
+- **Cloud execution** — Browserbase or Firecrawl — no local browser needed
 - **Local Chromium-family integration** — attach to your running Chrome, Brave, Chromium, or Edge browser via CDP for hands-on browsing
-- **Cloud anti-bot support** — Browser Use Cloud includes stealth, residential proxies, and CAPTCHA solving
-- **Persistent cloud profiles** — Browser Use Cloud can reuse cookies, localStorage, and saved passwords across sessions
 - **Session isolation** — each task gets its own browser session
 - **Automatic cleanup** — inactive sessions are closed after a timeout
 - **Vision analysis** — screenshot + AI analysis for visual understanding
 
 ## Setup
 
-:::tip Nous Subscribers
-If you have a paid [Nous Portal](https://portal.nousresearch.com) subscription, you can use browser automation through the **[Tool Gateway](tool-gateway.md)** without any separate API keys. New installs can run `hermes setup --portal` to log in and turn on every gateway tool at once; existing installs can pick **Nous Subscription** as the browser provider via `hermes model` or `hermes tools`.
-:::
+### Native browser controller
 
-### Browser Use cloud mode
+Set the controller explicitly in `~/.hermes/config.yaml`:
 
-To use Browser Use as your cloud browser provider, add:
-
-```bash
-# Add to ~/.hermes/.env
-BROWSER_USE_API_KEY=***
+```yaml
+browser:
+  backend: "off"
+  cloud_provider: local
 ```
 
-Get your API key at [browser-use.com](https://browser-use.com).
+`backend: "off"` selects the native tools; it does not disable browser automation. `cloud_provider: local` selects packaged Chromium. To use a supported cloud browser, keep `backend: "off"` and change `cloud_provider` to `browserbase` or `firecrawl`.
 
-Browser Use Cloud runs managed Chromium with [stealth](https://docs.browser-use.com/cloud/browser/stealth) and [residential proxies](https://docs.browser-use.com/cloud/browser/proxies) enabled by default, includes CAPTCHA solving, and supports [persistent profiles](https://docs.browser-use.com/cloud/guides/authentication) for cookies, localStorage, and saved passwords.
+Browser Use CLI/cloud, `browser_exec`, Nous browser hosting, and Camofox are retired in this fork. Existing selections of those routes return configuration guidance; no Browser Use installation or controller fallback is attempted.
+
+Each task owns its native browser session. CDP tasks also bind their own tab, so concurrent tasks do not share the same tab or daemon. Cleanup closes owned resources after inactivity or shutdown. To use an existing browser or saved logins, see [CDP connections](#local-chromium-family-browser-via-cdp-browser-connect) and [real-profile browsing](#real-profile-browsing-use-your-own-logins).
 
 ### Browserbase cloud mode
 
@@ -66,38 +60,7 @@ BROWSERBASE_PROJECT_ID=your-project-id-here
 Get your credentials at [browserbase.com](https://browserbase.com).
 
 :::note Selecting the provider
-The `.env` keys above supply **credentials only**. The active cloud browser is chosen by the `browser.cloud_provider` selection written by `hermes tools` → Browser Automation (`browserbase`, `browser-use`, `camofox`, or `nous` for the Nous Subscription). Once a selection exists, adding or removing a key does not switch providers — and a selected provider with a missing key errors with guidance to run `hermes tools` instead of silently rerouting. Never-configured setups still autodetect from available credentials.
-:::
-
-### Browser Use mode (default)
-
-Browser Use mode uses the [Browser Use CLI 3.0](https://github.com/browser-use/browser-use) instead of the built-in browser tools. The agent writes and executes Python in the browser to click, type, drag, scrape, and interact with webpages.
-
-**This is the default browser mode**: when `browser.backend` is unset, the agent gets the single `browser_exec` tool. Its engine is browser-harness (the Browser Use CLI is a thin wrapper around it), a regular Python dependency of Hermes, so every install ships it, including the Desktop app, with no separate download. If it is ever missing from Hermes's environment, Hermes falls back to the built-in browser tools and `hermes update` restores it.
-
-The mode is a **driver** that composes with your configured browser backend: it drives Hermes' own headless Chromium, a Nous-subscription cloud browser, Browserbase, Firecrawl, or Browser Use cloud browsers — whichever browser source is selected in `hermes tools` → Browser Automation. The one exception is Camofox, which has no CDP endpoint for the harness to attach to; Camofox setups automatically keep the built-in browser tools.
-
-**Local browsing uses the packaged Chromium, not your own Chrome.** With no cloud provider or `/browser connect` endpoint configured, Hermes launches the same Chromium that the built-in tools use (installed via `hermes tools` → Browser Automation, driven through agent-browser) and points the Browser Use CLI at it. Your installed Chrome is never touched, so there is no `chrome://inspect` remote-debugging toggle to enable and no "Allow remote debugging?" popup — and it works on headless hosts with no Chrome at all. The browser is shared with the built-in stack's lifecycle: it is closed after `browser.inactivity_timeout`, at exit, and by the orphan sweep. To drive a browser you're signed in to, use `/browser connect` or the [real-profile toggle](#real-profile-browsing-use-your-own-logins).
-
-**Concurrent sessions:** `browser_exec` accepts a `session=<name>` argument that isolates browser work per name on every backend. Each name gets its own harness daemon (its own IPC socket, log, and state) and its own browser (a separate packaged Chromium locally, a separate cloud browser on cloud backends) — so parallel subagents or simultaneous chats no longer clobber a single shared connection. Omitting `session` uses the shared default daemon, which is fine for one-at-a-time browsing.
-
-To opt out and force the built-in browser tools, use `/browser use off`, or:
-
-```yaml
-# Add to ~/.hermes/config.yaml
-browser:
-  backend: "off"
-```
-
-(`backend: "browser-use"` remains valid to force the mode explicitly.)
-
-Browser Use's own cloud browsers need `BROWSER_USE_API_KEY`; other browser sources use their existing credentials unchanged.
-
-:::note
-Because Browser Use mode executes model-written Python on your machine, the
-`browser_exec` tool is only offered to sessions that also have terminal
-access. Platforms configured without the terminal toolset (e.g. a locked-down
-messaging surface) keep the default browser tools instead.
+The `.env` keys above supply **credentials only**. The active cloud browser is chosen by the `browser.cloud_provider` selection written by `hermes tools` → Browser Automation (`local`, `browserbase`, `firecrawl`, or an installed browser-provider plugin). Once a selection exists, adding or removing a key does not switch providers — and a selected provider with a missing key errors with guidance to run `hermes tools` instead of silently rerouting. Never-configured setups can autodetect Browserbase from its credentials; set `cloud_provider: local` to keep local browsing explicit.
 :::
 
 ### Firecrawl cloud mode
@@ -255,11 +218,10 @@ to fully quit the browser — it won't loop or kill again on its own.
 - **Supported browsers:** Chrome, Edge, Brave, Brave Origin, Chromium (whichever is your OS
   default). A non-Chromium default (e.g. Firefox) fails closed with a clear
   message rather than guessing.
-- **Works on any backend.** On a local backend it's automatic once the toggle
-  is on. Under a **cloud** browser backend, the agent can still open a
-  real-profile local session on demand via the `browser_exec` tool's `local`
-  argument (the tool only exposes that argument when this toggle is on) — the
-  cloud backend keeps serving everything else.
+- **Requires local browser mode.** Set `browser.cloud_provider: local` to
+  use the snapshot automatically once the toggle is on. A configured cloud
+  provider or `/browser connect` endpoint takes precedence. Hybrid private-URL
+  sidecars use a clean profile rather than your copied logins.
 - **Security framing:** this is a consent-gated convenience, not an isolation
   boundary. A page the agent visits runs with your real logins, so only enable
   it when you want the agent acting as you. Off by default.
@@ -300,190 +262,6 @@ shape — a JSON watch contract written during setup, then one scheduled tick th
 re-reads it, compares, and alerts on change — though it covers the scheduling
 half, not logins.
 
-### Camofox local mode
-
-[Camofox](https://github.com/jo-inc/camofox-browser) is a self-hosted Node.js server wrapping Camoufox (a Firefox fork with C++ fingerprint spoofing). It provides local anti-detection browsing without cloud dependencies.
-
-```bash
-# Clone the Camofox browser server first
-git clone https://github.com/jo-inc/camofox-browser
-cd camofox-browser
-
-# Build and start with Docker using the default container settings
-# (auto-detects arch: aarch64 on M1/M2, x86_64 on Intel)
-make up
-
-# Stop and remove the default container
-make down
-
-# Force a clean rebuild (for example, after upgrading VERSION/RELEASE)
-make reset
-
-# Just download binaries without building
-make fetch
-
-# Override arch or version explicitly
-make up ARCH=x86_64
-make up VERSION=135.0.1 RELEASE=beta.24
-```
-
-`make up` starts the default container immediately. If you want custom runtime settings such as a larger Node heap, VNC, or a persistent profile directory, build the image first and then run it yourself:
-
-```bash
-# Build the image without starting the default container
-make build
-
-# Start with persistence, VNC live view, and a larger Node heap
-mkdir -p ~/.camofox-docker
-docker run -d \
-  --name camofox-browser \
-  --restart unless-stopped \
-  -p 9377:9377 \
-  -p 6080:6080 \
-  -p 5901:5900 \
-  -e CAMOFOX_PORT=9377 \
-  -e ENABLE_VNC=1 \
-  -e VNC_BIND=0.0.0.0 \
-  -e VNC_RESOLUTION=1920x1080 \
-  -e MAX_OLD_SPACE_SIZE=2048 \
-  -v ~/.camofox-docker:/root/.camofox \
-  camofox-browser:135.0.1-aarch64
-```
-
-With VNC enabled, the browser runs in headed mode and can be watched live in your browser at `http://localhost:6080` (noVNC). You can also connect a native VNC client to `localhost:5901`.
-
-If you already ran `make up`, stop and remove that default container before starting the custom one:
-
-```bash
-make down
-# then run the custom docker run command above
-```
-
-Then set in `~/.hermes/.env`:
-
-```bash
-CAMOFOX_URL=http://localhost:9377
-```
-
-If Camofox is running in Docker and you want it to open web apps served from the host machine, enable loopback rewriting. `CAMOFOX_URL` should still point at the host-published control API, but page URLs such as `http://127.0.0.1:3000` must be opened from inside the container as `http://host.docker.internal:3000`:
-
-```yaml
-# ~/.hermes/config.yaml
-browser:
-  camofox:
-    rewrite_loopback_urls: true
-    loopback_host_alias: host.docker.internal  # default; use a LAN IP if needed
-```
-
-Equivalent env vars:
-
-```bash
-CAMOFOX_REWRITE_LOOPBACK_URLS=true
-CAMOFOX_LOOPBACK_HOST_ALIAS=host.docker.internal
-```
-
-The rewrite only applies to page navigation URLs with loopback hosts (`localhost`, `127.0.0.1`, `::1`). It does not change `CAMOFOX_URL`. Leave it disabled for non-Docker Camofox installs, where the browser already runs on the host and loopback URLs are correct.
-
-Or configure via `hermes tools` → Browser Automation → Camofox.
-
-Camofox is selected like any other browser backend: pick **Camofox** in `hermes tools` → Browser Automation, which writes `browser.cloud_provider: camofox` to `config.yaml`. `CAMOFOX_URL` is only the server address — setting it no longer selects the backend by itself once a browser selection exists (never-configured setups still autodetect it).
-
-#### Persistent browser sessions
-
-By default, each Camofox session gets a random identity — cookies and logins don't survive across agent restarts. To enable persistent browser sessions, add the following to `~/.hermes/config.yaml`:
-
-```yaml
-browser:
-  camofox:
-    managed_persistence: true
-```
-
-Then fully restart Hermes so the new config is picked up.
-
-:::warning Nested path matters
-Hermes reads `browser.camofox.managed_persistence`, **not** a top-level `managed_persistence`. A common mistake is writing:
-
-```yaml
-# ❌ Wrong — Hermes ignores this
-managed_persistence: true
-```
-
-If the flag is placed at the wrong path, Hermes silently falls back to a random ephemeral `userId` and your login state will be lost on every session.
-:::
-
-##### What Hermes does
-- Sends a deterministic profile-scoped `userId` to Camofox so the server can reuse the same Firefox profile across sessions.
-- Skips server-side context destruction on cleanup, so cookies and logins survive between agent tasks.
-- Scopes the `userId` to the active Hermes profile, so different Hermes profiles get different browser profiles (profile isolation).
-
-##### What Hermes does not do
-- It does not force persistence on the Camofox server. Hermes only sends a stable `userId`; the server must honor it by mapping that `userId` to a persistent Firefox profile directory.
-- If your Camofox server build treats every request as ephemeral (e.g. always calls `browser.newContext()` without loading a stored profile), Hermes cannot make those sessions persist. Make sure you are running a Camofox build that implements userId-based profile persistence.
-
-##### Verify it's working
-
-1. Start Hermes and your Camofox server.
-2. Open Google (or any login site) in a browser task and sign in manually.
-3. End the browser task normally.
-4. Start a new browser task.
-5. Open the same site again — you should still be signed in.
-
-If step 5 logs you out, the Camofox server isn't honoring the stable `userId`. Double-check your config path, confirm you fully restarted Hermes after editing `config.yaml`, and verify your Camofox server version supports persistent per-user profiles.
-
-##### Where state lives
-
-Hermes derives the stable `userId` from the profile-scoped directory `~/.hermes/browser_auth/camofox/` (or the equivalent under `$HERMES_HOME` for non-default profiles). The actual browser profile data lives on the Camofox server side, keyed by that `userId`. To fully reset a persistent profile, clear it on the Camofox server and remove the corresponding Hermes profile's state directory.
-
-#### Externally managed Camofox sessions
-
-When another app drives the visible Camofox browser (a desktop assistant, a custom integration, another agent), configure Hermes to operate inside that same identity instead of spawning its own isolated profile.
-
-Three knobs control the behavior:
-
-| Setting | Env var | Effect |
-|---------|---------|--------|
-| `browser.camofox.user_id` | `CAMOFOX_USER_ID` | Camofox `userId` Hermes uses when creating tabs. Setting this opts the session into "externally managed" mode. |
-| `browser.camofox.session_key` | `CAMOFOX_SESSION_KEY` | `sessionKey` (a.k.a. `listItemId`) sent on tab creation. Used to match an existing tab during adoption. Defaults to a per-task value if unset. |
-| `browser.camofox.adopt_existing_tab` | `CAMOFOX_ADOPT_EXISTING_TAB` | When true, Hermes calls `GET /tabs?userId=<user_id>` on first use and reuses an existing tab before creating a new one. |
-
-Env vars take precedence over `config.yaml`. Either form works:
-
-```yaml
-browser:
-  camofox:
-    user_id: shared-camofox
-    session_key: visible-tab
-    adopt_existing_tab: true
-```
-
-```bash
-CAMOFOX_USER_ID=shared-camofox
-CAMOFOX_SESSION_KEY=visible-tab
-CAMOFOX_ADOPT_EXISTING_TAB=true
-```
-
-**What changes when `user_id` is set:**
-
-- Hermes skips destructive cleanup at task end (same as `managed_persistence: true`). The other app's tab/cookies/profile survive.
-- Hermes does **not** call `DELETE /sessions/<user_id>` — that endpoint wipes all user data, so it would nuke the external app's session if it fired.
-
-**How tab adoption works (when `adopt_existing_tab: true`):**
-
-1. On the first browser tool call after a process start, Hermes issues `GET /tabs?userId=<user_id>` (5-second timeout).
-2. If any tab in the response has `listItemId == session_key`, Hermes adopts the most recently created one in that group.
-3. Otherwise, Hermes adopts the most recently created tab for the user (any `listItemId`).
-4. If no tabs exist or the request fails, Hermes falls back to creating a new tab on the next operation.
-
-Adoption only fires until `tab_id` is populated for the session. If the external app closes the adopted tab mid-run, the next browser tool call will surface a Camofox error — Hermes does not re-poll for a fresh tab on every call.
-
-**Picking `session_key`:** if you want Hermes to reliably attach to a *specific* existing tab, set `session_key` to the `listItemId` the external app used when creating it. If you leave `session_key` unset and only set `user_id`, Hermes generates a per-task `session_key` (`task_<id>`) — Hermes will share cookies and the profile with the external app, but will open its own tab alongside instead of reusing one.
-
-**Concurrency note:** the external app and Hermes can drive the same Camofox `userId` simultaneously, but Camofox does not coordinate per-tab focus between clients. Coordinate ownership at the application layer (e.g. the external app pauses while Hermes runs).
-
-#### VNC live view
-
-When Camofox runs in headed mode (with a visible browser window), it exposes a VNC port in its health check response. Hermes automatically discovers this and includes the VNC URL in navigation responses, so the agent can share a link for you to watch the browser live.
-
 ### Lightpanda local engine
 
 [Lightpanda](https://lightpanda.io) is an open-source headless browser written from scratch. It starts instantly, runs 9x faster and uses 16x less memory than Chrome, which matters for agents that live on small VMs for long stretches.
@@ -503,12 +281,9 @@ Or via environment variable:
 AGENT_BROWSER_ENGINE=lightpanda
 ```
 
-The engine works with both browser drivers:
+Hermes drives Lightpanda through `agent-browser --engine lightpanda` over CDP. It handles supported text and interaction commands; graphical operations such as screenshots and `browser_vision` use Chromium. Other failed operations can retry in Chromium with a fallback warning. A command reported as `outcome_unknown` is returned without replaying it in another engine.
 
-- **Browser Use mode (the default).** Hermes launches `lightpanda serve --host 127.0.0.1 --port <free>` itself — one process per `browser_exec` session name (or per task) — and points the Browser Use CLI at it. No Chromium, Playwright or Node.js is needed. The process is reaped after `browser.inactivity_timeout`, on exit, and by the orphan sweep if Hermes crashes. All of these processes share one on-disk HTTP cache at `$HERMES_HOME/cache/browser-use/lightpanda/http-cache`, so repeat visits skip re-downloading assets. Hermes passes the cache flag only when the installed Lightpanda supports it (0.3.x+); older binaries simply run without a cache. To clear it, stop your Lightpanda sessions first, then delete that directory. Lightpanda has no graphical renderer, so `capture_screenshot()` is unavailable and the tool description tells the model to work text-first; it also holds one page per session, so the model is told to call `new_tab()` once and `goto_url()` afterwards (tracked upstream in [lightpanda-io/browser#1962](https://github.com/lightpanda-io/browser/issues/1962)).
-- **Built-in browser tools** (`/browser use off`). Hermes drives Lightpanda through `agent-browser --engine lightpanda` over CDP, the same way it drives local Chrome, with **automatic Chrome fallback**: Lightpanda handles the actions it supports (navigate, snapshot, click, type, scroll, back, press, eval) and Hermes transparently retries on Chrome for anything it doesn't. Screenshots and `browser_vision` are routed straight to Chrome.
-
-**When the engine is ignored.** `browser.engine` is the lowest-precedence browser setting: a cloud provider (including the Nous subscription browser — and on never-configured setups, any `BROWSERBASE_API_KEY` / `BROWSER_USE_API_KEY` in `~/.hermes/.env` auto-selects one), Camofox, a `browser.cdp_url` / `/browser connect` override, or `browser.use_real_profile` all take precedence. Picking Lightpanda in `hermes tools` writes `cloud_provider: local` for you; `/browser status` and `hermes doctor` report when the engine is configured but shadowed, and by what.
+**When the engine is ignored.** A configured cloud provider, a `browser.cdp_url` / `/browser connect` override, or real-profile browsing takes precedence over `browser.engine`. Picking Lightpanda in `hermes tools` writes `cloud_provider: local`; `/browser status` and `hermes doctor` report when another source overrides the engine.
 
 ### Local Chromium-family browser via CDP (`/browser connect`)
 
@@ -612,9 +387,8 @@ BROWSERBASE_SESSION_TIMEOUT=1800
 # Inactivity timeout before auto-cleanup in seconds (default: 120)
 BROWSER_INACTIVITY_TIMEOUT=120
 
-# Local browser engine. Equivalent to browser.engine in config.yaml. In
-# Browser Use mode (default) "lightpanda" makes Hermes spawn `lightpanda serve`;
-# with the built-in tools it is passed to agent-browser as --engine.
+# Local browser engine. Equivalent to browser.engine in config.yaml;
+# passed to agent-browser as --engine.
 #   auto       — Chrome (default)
 #   lightpanda — Lightpanda
 #   chrome     — force Chrome explicitly
@@ -652,7 +426,7 @@ The `browser` toolset must be included in your config's `toolsets` list or enabl
 
 ### `browser_navigate`
 
-Navigate to a URL. Must be called before any other browser tool. Initializes the Browserbase session.
+Navigate to a URL. Call it before interacting with page elements; it initializes the task's configured local or cloud browser session.
 
 ```
 Navigate to https://github.com/NousResearch
@@ -679,7 +453,7 @@ browser:
   snapshot_threshold: 30000
 ```
 
-You can also run `hermes config set browser.snapshot_threshold 30000`. The setting applies to both explicit `browser_snapshot` calls and the automatic snapshot returned after navigation, including the Camofox backend (minimum 1000). Restart the current Hermes session after changing it so the browser config cache reloads.
+You can also run `hermes config set browser.snapshot_threshold 30000`. The setting applies to both explicit `browser_snapshot` calls and the automatic snapshot returned after navigation (minimum 1000). Restart the current Hermes session after changing it so the browser config cache reloads.
 
 ### `browser_click`
 
@@ -760,7 +534,7 @@ Evaluation is unrestricted by default — the agent can use `fetch`, read storag
 
 Raw Chrome DevTools Protocol passthrough — the escape hatch for browser operations not covered by the other tools. Use for native dialog handling, iframe-scoped evaluation, cookie/network control, or any CDP verb the agent needs.
 
-**Only available when a CDP endpoint is reachable at session start** — meaning `/browser connect` has attached to a running Chrome, Brave, Chromium, or Edge browser, or `browser.cdp_url` is set in `config.yaml`. The default local agent-browser mode, Camofox, and cloud providers (Browserbase, Browser Use, Firecrawl) do not currently expose CDP to this tool — cloud providers have per-session CDP URLs but live-session routing is a follow-up.
+**Only available when a CDP endpoint is reachable at session start** — meaning `/browser connect` has attached to a running Chrome, Brave, Chromium, or Edge browser, or `browser.cdp_url` is set in `config.yaml`. The default local agent-browser mode and cloud providers (Browserbase, Firecrawl) do not currently expose CDP to this tool — cloud providers have per-session CDP URLs but live-session routing is a follow-up.
 
 **CDP method reference:** https://chromedevtools.github.io/devtools-protocol/ — the agent can `web_extract` a specific method's page to look up parameters and return shape.
 
@@ -815,7 +589,7 @@ Responds to a native JS dialog (`alert` / `confirm` / `prompt` / `beforeunload`)
 |---|---|---|
 | Local Chrome via `/browser connect` or `browser.cdp_url` | ✓ | ✓ full workflow |
 | Browserbase | ✓ | ✓ full workflow (via injected XHR bridge) |
-| Camofox / default local agent-browser | ✗ | ✗ (no CDP endpoint) |
+| Default local agent-browser | ✗ | ✗ (no CDP endpoint) |
 
 **How it works on Browserbase.** Browserbase's CDP proxy auto-dismisses real native dialogs server-side within ~10ms, so we can't use `Page.handleJavaScriptDialog`. The supervisor injects a small script via `Page.addScriptToEvaluateOnNewDocument` that overrides `window.alert`/`confirm`/`prompt` with a synchronous XHR. We intercept those XHRs via `Fetch.enable` — the page's JS thread stays blocked on the XHR until we call `Fetch.fulfillRequest` with the agent's response. `prompt()` return values round-trip back into page JS unchanged.
 
@@ -902,11 +676,11 @@ If paid features aren't available on your plan, Hermes automatically falls back 
 
 ## Session Management
 
-- Each task gets an isolated browser session via Browserbase
+- Each task gets an isolated native session; CDP connections also bind a task-owned tab
 - Sessions are automatically cleaned up after inactivity (default: 2 minutes)
 - A background thread checks every 30 seconds for stale sessions
 - Emergency cleanup runs on process exit to prevent orphaned sessions
-- Sessions are released via the Browserbase API (`REQUEST_RELEASE` status)
+- Cloud sessions are released through their configured provider; local sessions close their owned browser resources
 
 ## Limitations
 
