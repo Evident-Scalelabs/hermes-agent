@@ -75,9 +75,7 @@ installation selects the `all` Python extra, not every optional extra.
 PM also installs the browser and computer-use tools by default: `agent-browser`
 and its pinned Chromium, and `cua-driver` (the computer-use driver, on macOS,
 Windows and glibc Linux). If a download fails, the install still completes and
-prints the command to retry. The default browser driver (browser-harness, the
-engine of the Browser Use CLI) is a regular Python dependency, so every install,
-the Desktop app included, already has it.
+prints the command to retry.
 Other optional tools use their feature-specific installation paths.
 
 To leave the browser tools out, pass `--skip-browser` on POSIX or `-SkipBrowser`
