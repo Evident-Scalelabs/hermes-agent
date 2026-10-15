@@ -196,3 +196,7 @@ Requires `hindsight-client >= 0.6.1`. The plugin auto-upgrades on session start 
 ### Checking original experience
 
 `hindsight_recall(query="...", view="sources")` retrieves world/experience facts and original chunks in the configured bank and tag scope. It bounds facts to 4,096 tokens and chunks to 2,048; missing chunks and unlinked results are explicit. Returned support remains unverified, including when the pinned SDK cannot expose native truncation flags. Preserve observation dates, mentioned dates and the source's qualifications. An omitted view keeps existing recall behavior; automatic recall is unchanged. The tool cannot override bank, tags or fact types.
+
+### Priority source facts
+
+Set `recall_priority_tags` to structural tags whose source facts should accompany broad recall (for example, reviewed corrections). Recall reserves one third of its existing result-token budget for the same question filtered by those tags, retaining the bank and all caller scope tags with strict matching. The remaining budget reads ordinary memories; duplicate IDs appear once. Source-view reads stay unchanged. A failed pass warns and marks `priority_recall.state=partial` while preserving the other response. Without priority tags the provider makes one request as before. The managed oneshot bridge can transport this setting as `HINDSIGHT_RECALL_PRIORITY_TAGS`; it is not a persisted process-wide setting.
