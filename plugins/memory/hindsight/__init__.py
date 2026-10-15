@@ -260,6 +260,7 @@ def _load_config() -> dict:
         "recall_query": get_secret("HINDSIGHT_RECALL_QUERY", ""),
         "recall_tags": _normalize_retain_tags(get_secret("HINDSIGHT_RECALL_TAGS", "")),
         "recall_tags_match": get_secret("HINDSIGHT_RECALL_TAGS_MATCH", "") or "any",
+        "recall_priority_tags": _normalize_retain_tags(get_secret("HINDSIGHT_RECALL_PRIORITY_TAGS", "")),
         "retain_tags": get_secret("HINDSIGHT_RETAIN_TAGS", "") or "",
         "observation_scopes": get_secret("HINDSIGHT_RETAIN_OBSERVATION_SCOPES", "") or "",
         "retain_source": _scoped_setting("HINDSIGHT_RETAIN_SOURCE", _DEFAULT_RETAIN_SOURCE),
@@ -435,6 +436,7 @@ class HindsightMemoryProvider(MemoryProvider):
             {"key": "retain_user_prefix", "description": "Label used before user turns in retained transcripts", "default": "User"},
             {"key": "retain_assistant_prefix", "description": "Label used before assistant turns in retained transcripts", "default": "Assistant"},
             {"key": "recall_tags", "description": "Tags to filter when searching memories (comma-separated)", "default": ""},
+            {"key": "recall_priority_tags", "description": "Source-fact tags reserved a third of the recall budget (comma-separated)", "default": ""},
             {"key": "recall_tags_match", "description": "Tag matching mode for recall", "default": "any", "choices": ["any", "all", "any_strict", "all_strict"]},
             {"key": "recall_types", "description": "Fact types to surface on recall — applies to both auto-recall and the hindsight_recall tool (comma-separated or list). Defaults to observation-only — observations are Hindsight's consolidated, deduplicated, evidence-grounded knowledge layer; raw world/experience facts are the supporting evidence observations already summarize. Set to e.g. 'observation,world,experience' to also include raw facts.", "default": "observation"},
             {"key": "auto_recall", "description": "Automatically recall memories before each turn", "default": True},
@@ -785,6 +787,7 @@ class HindsightMemoryProvider(MemoryProvider):
         # schema advertises it that way); the client needs list[str], as for retain_tags.
         self._recall_tags = _normalize_retain_tags(cfg.get("recall_tags")) or None
         self._recall_tags_match = cfg.get("recall_tags_match", "any")
+        self._recall_priority_tags = _normalize_retain_tags(cfg.get("recall_priority_tags"))
         self._auto_recall = cfg.get("auto_recall", True)
         self._recall_sync = bool(cfg.get("recall_sync", False))
         self._recall_max_tokens = int(cfg.get("recall_max_tokens", 4096))
@@ -907,14 +910,16 @@ class HindsightMemoryProvider(MemoryProvider):
             # Automatic context is a small reading aid, not a provenance dump.
             # Explicit recall keeps the full native attribution/source contract.
             kwargs.update(max_tokens=min(self._recall_max_tokens, 1024), include_source_facts=False)
-        resp = self._run_hindsight_operation(lambda client: client.arecall(**kwargs))
-        response = resp.model_dump(mode="json", by_alias=True, exclude_none=True)
+        from .recall import recall_with_priority
+        response = self._run_hindsight_operation(
+            lambda client: recall_with_priority(client, kwargs, [] if sources else self._recall_priority_tags))
         if prefetch:
             return {
                 "results": [{key: value for key, value in result.items() if key in (
                     "id", "text", "type", "document_id", "occurred_start", "occurred_end", "tags",
                 )} for result in response["results"]],
                 "support_completeness": "not_loaded",
+                **({"priority_recall": response["priority_recall"]} if "priority_recall" in response else {}),
                 "authority": "Historical advice, not current measurement evidence. Current evidence governs; to rely on one specific material claim, check it with a narrow hindsight_recall question.",
             }
         facts = response.get("source_facts") or {}
