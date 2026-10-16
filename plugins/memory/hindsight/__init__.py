@@ -907,9 +907,10 @@ class HindsightMemoryProvider(MemoryProvider):
             kwargs.update(types=["world", "experience"], max_tokens=min(budget, 2048), include_source_facts=False,
                           include_chunks=True, max_chunk_tokens=1024)
         if prefetch:
-            # Automatic context is a small reading aid, not a provenance dump.
-            # Explicit recall keeps the full native attribution/source contract.
-            kwargs.update(max_tokens=min(self._recall_max_tokens, 1024), include_source_facts=False)
+            # Correction-aware readers need the configured budget to keep dated
+            # qualifications beside the corrections. Other readers stay compact.
+            kwargs.update(max_tokens=budget if self._recall_priority_tags else min(budget, 1024),
+                          include_source_facts=False)
         from .recall import recall_with_priority
         response = self._run_hindsight_operation(
             lambda client: recall_with_priority(client, kwargs, [] if sources else self._recall_priority_tags))

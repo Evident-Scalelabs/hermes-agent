@@ -14,23 +14,25 @@ def response(items):
 
 
 @pytest.mark.parametrize('prefetch', [False, True])
-def test_broad_recall_carries_source_correction_within_budget(provider_with_config, prefetch):
+@pytest.mark.parametrize('max_tokens', [768, 4096])
+def test_broad_recall_carries_source_correction_within_budget(provider_with_config, prefetch, max_tokens):
     p = provider_with_config(recall_tags=['scope:site'], recall_tags_match='all_strict',
-                             recall_priority_tags=['kind:correction'])
+                             recall_priority_tags=['kind:correction'], recall_max_tokens=max_tokens, recall_sync=True)
     correction = {'id': 'corrected', 'text': 'Evident assessment, observed 2026-10-14: terms were not established on the inspected offer page; other pages were not inspected.',
                   'type': 'world', 'document_id': 'reviewed-source', 'tags': ['scope:site', 'kind:correction']}
     original = {'id': 'original', 'text': 'An older assessment of incomplete terms.'}
     p._client.arecall = AsyncMock(side_effect=lambda **kw: response([correction] if 'kind:correction' in kw['tags'] else [original, correction]))
     try:
         if prefetch:
-            result = p._recall('What matters about the offer?', prefetch=True)
+            context = p.prefetch('What matters about the offer?')
+            result = json.loads(context[context.index('{'):])
         else:
             result = json.loads(p.handle_tool_call('hindsight_recall', {'query': 'What matters about the offer?'}))['result']
         assert result['results'][0]['text'] == correction['text']
         assert [r['id'] for r in result['results']] == ['corrected', 'original']
         calls = [c.kwargs for c in p._client.arecall.call_args_list]
         assert len(calls) == 2
-        assert sum(c['max_tokens'] for c in calls) == (1024 if prefetch else 4096)
+        assert sum(c['max_tokens'] for c in calls) == max_tokens
         assert all(c['bank_id'] == p._bank_id and c['tags_match'] == 'all_strict' for c in calls)
         assert calls[1]['tags'] == ['scope:site', 'kind:correction']
         assert calls[1]['types'] == ['world', 'experience']
