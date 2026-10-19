@@ -418,7 +418,7 @@ def resolve_xai_oauth_runtime_credentials(
     *, force_refresh: bool = False, refresh_if_expiring: bool = True,
     refresh_skew_seconds: Optional[int] = None,
 ) -> dict[str, Any]:
-    from hermes_cli.auth import _auth_store_lock, _is_terminal_xai_oauth_refresh_error, _refresh_xai_oauth_tokens, _xai_oauth_discovery
+    from hermes_cli.auth import _provider_state_transaction, _is_terminal_xai_oauth_refresh_error, _refresh_xai_oauth_tokens, _xai_oauth_discovery
 
     def _should_refresh(data: dict[str, Any]) -> bool:
         access_token = _clean(data["tokens"].get("access_token"))
@@ -430,19 +430,22 @@ def resolve_xai_oauth_runtime_credentials(
             refresh_if_expiring and _xai_access_token_is_expiring(access_token, skew)
         )
 
-    data = _read_xai_oauth_tokens()
+    # Auth stores are atomically replaced. A read-only snapshot must not queue behind a
+    # sibling's network refresh and fail before inference; rotation still re-reads under lock.
+    data = _read_xai_oauth_tokens(_lock=False)
     tokens = dict(data["tokens"])
     refresh_timeout_seconds = env_float("HERMES_XAI_REFRESH_TIMEOUT_SECONDS", 20)
     if _should_refresh(data):
-        with _auth_store_lock(timeout_seconds=max(float(AUTH_LOCK_TIMEOUT_SECONDS), refresh_timeout_seconds + 5.0)):
+        # Discovery has its own HTTP deadline; keep it outside the credential transaction
+        # so waiters need outlive only the refresh request, not two network requests.
+        token_endpoint = (_clean(dict(data.get("discovery") or {}).get("token_endpoint"))
+                          or _xai_oauth_discovery(refresh_timeout_seconds)["token_endpoint"])
+        with _provider_state_transaction("xai-oauth", max(float(AUTH_LOCK_TIMEOUT_SECONDS), refresh_timeout_seconds + 5.0)):
             # Re-read under the lock: a concurrent caller may already have rotated the grant.
             data = _read_xai_oauth_tokens(_lock=False)
             tokens = dict(data["tokens"])
             if _should_refresh(data):
-                token_endpoint = (
-                    _clean(dict(data.get("discovery") or {}).get("token_endpoint"))
-                    or _xai_oauth_discovery(refresh_timeout_seconds)["token_endpoint"]
-                )
+                token_endpoint = _clean(dict(data.get("discovery") or {}).get("token_endpoint")) or token_endpoint
                 try:
                     tokens = _refresh_xai_oauth_tokens(
                         tokens, token_endpoint=token_endpoint, redirect_uri=_clean(data.get("redirect_uri")),

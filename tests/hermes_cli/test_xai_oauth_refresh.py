@@ -3,8 +3,31 @@ from __future__ import annotations
 import base64
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 from hermes_cli import auth
+
+
+def test_usable_credentials_do_not_wait_for_another_refresh_transaction(tmp_path, monkeypatch):
+    """A factor's healthy snapshot read must not time out behind a slow sibling refresh."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    auth._save_xai_oauth_tokens({"access_token": "usable-access", "refresh_token": "refresh"})
+    completed = Event()
+
+    def resolve():
+        result = auth.resolve_xai_oauth_runtime_credentials(refresh_if_expiring=False)
+        completed.set()
+        return result
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with auth._auth_store_lock():
+            future = pool.submit(resolve)
+            completed_while_refreshing = completed.wait(3)
+        result = future.result(timeout=5)
+    assert completed_while_refreshing, "read-only resolution waited on the refresh writer"
+    assert result["api_key"] == "usable-access"
+    assert json.loads((tmp_path / "auth.json").read_text())["providers"]["xai-oauth"]["tokens"]["refresh_token"] == "refresh"
 
 
 def _jwt_with_exp(exp: int) -> str:
