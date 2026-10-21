@@ -1768,6 +1768,8 @@ class TestMultiplexBackgroundScope:
         monkeypatch.setitem(sys.modules, "hindsight_embed", SimpleNamespace(daemon_embed_manager=dem))
         monkeypatch.setitem(sys.modules, "hindsight_embed.daemon_embed_manager", dem)
         monkeypatch.setattr("plugins.memory.hindsight._check_local_runtime", lambda: (True, ""))
+        # This fake daemon tests secret propagation, independently of PostgreSQL's root guard.
+        monkeypatch.setattr("plugins.memory.hindsight.os.geteuid", lambda: 1000, raising=False)
 
         home = tmp_path / "profiles" / "p1"
         (home / "hindsight").mkdir(parents=True)
