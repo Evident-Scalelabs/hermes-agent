@@ -92,10 +92,10 @@ dependencies = [
   # it out of the lazy-install path that exists only for the heavy matrix deps.
   "Markdown==3.10.2; python_version >= '3.14'",
   # Skills Hub (GitHub App JWT auth — optional, only needed for bot identity)
-  "PyJWT[crypto]==2.13.0; python_version >= '3.14'",  # PYSEC-2026-175/177/178/179
-  # urllib3 2.7.0 fixes GHSA-mf9v-mfxr-j63j (decompression-bomb bypass)
-  # and GHSA-qccp-gfcp-xxvc (header leak across origins).
-  "urllib3>=2.7.0,<3; python_version >= '3.14'",
+  "PyJWT[crypto]==2.15.1; python_version >= '3.14'",  # JWKS redirect and malformed-payload fixes; padded JWS compatibility.
+  # 2.8.0 fixes compressed/chunked response exhaustion (GHSA-gh4c-6fx4-qh6g,
+  # GHSA-vxq7-64xx-v4gw) while preserving Hindsight's supported <3 range.
+  "urllib3>=2.8.0,<3; python_version >= '3.14'",
   # PyJWT[crypto] pulls cryptography in transitively. Pin it here as well, so
   # that the WeCom and Weixin crypto paths cannot fall below the patched
   # version. 50.0.0 is the floor: it fixes CVE-2026-69247, a Bleichenbacher
@@ -107,7 +107,7 @@ dependencies = [
   # A pin here is not sufficient on its own. alibabacloud-tea-openapi caps
   # cryptography<49, so [tool.uv] also holds an override. Read that comment
   # before you move this version.
-  "cryptography==50.0.1; python_version >= '3.14'",  # CVE-2026-69247, GHSA-m2h6-j472-rp4c, GHSA-jwv3-5hgf-82ww, CVE-2026-39892, CVE-2026-34073, GHSA-537c-gmf6-5ccf
+  "cryptography==50.0.2; python_version >= '3.14'",  # CVE-2026-69247, GHSA-m2h6-j472-rp4c, GHSA-jwv3-5hgf-82ww, CVE-2026-39892, CVE-2026-34073, GHSA-537c-gmf6-5ccf
   # Windows has no IANA tzdata shipped with the OS, so Python's ``zoneinfo``
   # (PEP 615) raises ``ZoneInfoNotFoundError`` for every non-UTC timezone
   # out of the box.  ``tzdata`` ships the Olson database as a data package
@@ -611,7 +611,7 @@ override-dependencies = [
   # Keep this exact version equal to the direct dependency. uv overrides
   # replace that requirement too, not only the vendor's upper bound.
   # Remove this line when alibabacloud-tea-openapi lifts the cap.
-  "cryptography==50.0.1",
+  "cryptography==50.0.2",
   # misaki[en] (pulled by [kittentts]) lists spacy-curated-transformers.
   # The newest release that fits spacy 3.8 (2.x needs thinc 9), 0.3.1, caps
   # Python below 3.14, so PM's `uv pip check` rejects the venv. Nothing
