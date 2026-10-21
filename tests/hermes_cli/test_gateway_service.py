@@ -891,6 +891,8 @@ class TestGatewayServiceDetection:
         monkeypatch.setattr(gateway_cli, "is_wsl", lambda: False)
         monkeypatch.setattr(gateway_cli.shutil, "which", lambda name: "/usr/bin/systemctl")
 
+        monkeypatch.setattr(gateway_cli, "is_container", lambda: False)
+
         assert gateway_cli.supports_systemd_services() is True
 
     def test_is_service_running_checks_system_scope_when_user_scope_is_inactive(self, monkeypatch):
@@ -2906,6 +2908,7 @@ class TestUnitAnchoredServiceIdentity:
     def test_real_unit_sync_keeps_the_name_it_validated(self, tmp_path, monkeypatch):
         """Drive the production sync instead of simulating the adoption with setenv: the name resolved
         before ``_sync_hermes_home_from_systemd_unit()`` must survive the mutation it performs."""
+        monkeypatch.setattr(gateway_cli, "supports_systemd_services", lambda: True)
         alice_home = tmp_path / "alice" / ".hermes"
         alice_home.mkdir(parents=True)
         root_home = tmp_path / "root" / ".hermes"
@@ -2918,6 +2921,7 @@ class TestUnitAnchoredServiceIdentity:
         monkeypatch.setattr(gateway_cli, "_SYSTEM_UNIT_DIR", unit_dir)
         monkeypatch.setattr(os, "geteuid", lambda: 0)
         monkeypatch.setattr(hermes_constants, "_get_platform_default_hermes_home", lambda: root_home)
+        monkeypatch.setattr(hermes_constants, "account_default_hermes_home", lambda: root_home)
         monkeypatch.delenv("HERMES_HOME", raising=False)
 
         pre_sync_name = gateway_cli.get_service_name()

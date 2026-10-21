@@ -226,3 +226,22 @@ def _overlapping_terminal_turns(owner, policies):
         thread.join(timeout=120)
     assert not errors, errors
     return outputs
+
+
+def test_login_snapshot_keeps_client_toolchain_after_shell_init(tmp_path, monkeypatch):
+    from agent.session_client_env import client_env_scope
+    from tools.environments.local import LocalEnvironment
+    init = tmp_path / "init.sh"
+    init.write_text('export PATH=/daemon/bin:/usr/bin:/bin; export NVM_DIR=/daemon/.nvm\n')
+    monkeypatch.setattr("tools.environments.local._resolve_shell_init_files", lambda: [str(init)])
+    with client_env_scope(CLIENT):
+        env = LocalEnvironment(cwd=str(tmp_path), timeout=10)
+        try:
+            assert env._snapshot_ready
+            first = env.execute('echo "$PATH|$NVM_DIR"')["output"]
+            assert "/client/venv/bin" in first and "/client/.nvm" in first
+            # Later command exports remain owned by the shell snapshot.
+            env.execute('export NVM_DIR=/changed')
+            assert "/changed" in env.execute('echo "$NVM_DIR"')["output"]
+        finally:
+            env.cleanup()

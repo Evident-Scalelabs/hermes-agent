@@ -108,6 +108,7 @@ class TestScratchDirPermissionPolicy:
         return stat.S_IMODE(os.stat(path).st_mode)
 
     def _isolate_env(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("hermes_constants._detect_container", lambda: False)
         # A known, marker-free effective home: each case below plants `.managed` in the home whose
         # scratch dir it exercises (`get_scratch_dir(home)` reads the marker there), and the real
         # home's own marker must not leak into callers that still resolve the effective home.

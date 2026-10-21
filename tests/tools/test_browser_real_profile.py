@@ -121,6 +121,7 @@ class TestSnapshotRealProfile:
         import stat
 
         import hermes_cli.browser_connect as bc
+        monkeypatch.setattr("hermes_constants._detect_container", lambda: False)
         src = self._make_profile(tmp_path / "real")
         home = tmp_path / "hermes-home"
         monkeypatch.setattr(bc, "get_hermes_home", lambda: home)
@@ -147,6 +148,7 @@ class TestSnapshotRealProfile:
         import stat
 
         import hermes_cli.browser_connect as bc
+        monkeypatch.setattr("hermes_constants._detect_container", lambda: False)
         src = self._make_profile(tmp_path / "real")
         home = tmp_path / "hermes-home"
         monkeypatch.setattr(bc, "get_hermes_home", lambda: home)

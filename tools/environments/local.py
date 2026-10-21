@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from pathlib import Path
 from hermes_constants import get_process_hermes_home
 from tools.environments.base import BaseEnvironment
 from tools.environments.base_output import _pipe_stdin
+from tools.environments.base_session_env import _SHELL_ENV_NAME_RE
 from hermes_cli._subprocess_compat import windows_hide_flags
 from tools.environments.local_env_policy import (
     _ALWAYS_STRIP_FOLDED, _ALWAYS_STRIP_KEYS, _HERMES_PROVIDER_ENV_BLOCKLIST, _HERMES_PROVIDER_ENV_FORCE_PREFIX,
@@ -1101,12 +1103,18 @@ class LocalEnvironment(BaseEnvironment):
         bash = _find_bash()
         # Login invocations (init_session's env snapshot) source the user's rc /
         # custom init files so nvm/asdf/pyenv land on PATH in the snapshot.
+        run_env = _make_run_env(self.env)
         if login:
-            cmd_string = _prepend_shell_init(cmd_string, _resolve_shell_init_files())
+            from agent.session_client_env import tool_env
+            # Login rc files may replace PATH. Freeze the local client's toolchain after
+            # sourcing them, so the snapshot and subsequent commands keep its executables.
+            exports = "".join(f"export {key}={shlex.quote(run_env[key])}\n"
+                              for key in tool_env() if key in run_env and _SHELL_ENV_NAME_RE.fullmatch(key))
+            cmd_string = _prepend_shell_init(exports + cmd_string, _resolve_shell_init_files())
         args = [bash, *(["-l"] if login else []), "-c", cmd_string]
         self._recover_cwd()
         proc = subprocess.Popen(
-            args, text=True, env=_make_run_env(self.env), encoding="utf-8", errors="replace",
+            args, text=True, env=run_env, encoding="utf-8", errors="replace",
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             stdin=subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL,
             start_new_session=True, cwd=self.cwd,

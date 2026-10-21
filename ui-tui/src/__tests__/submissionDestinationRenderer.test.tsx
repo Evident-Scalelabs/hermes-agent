@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -12,7 +12,7 @@ import { useSubmission } from '../app/useSubmission.js'
 import { useQueue } from '../hooks/useQueue.js'
 
 it('submits interpolated queued input only to its captured owner and removes it only after the matching receipt', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'ink-submit-'))
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'ink-submit-')))
   vi.stubEnv('HERMES_HOME', home)
   resetUiState()
   const info = { model: 'test', profile_name: 'alpha', stored_session_id: 'stored-owner', skills: {}, tools: {} }
@@ -99,7 +99,7 @@ it('submits interpolated queued input only to its captured owner and removes it 
 })
 
 it('refuses the whole submit when a {!cmd} cannot run instead of sending a placeholder to the model', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'ink-submit-'))
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'ink-submit-')))
   vi.stubEnv('HERMES_HOME', home)
   resetUiState()
   patchUiState({ sid: 'owner', info: { model: 'test', stored_session_id: 'stored-owner', skills: {}, tools: {} } as any })

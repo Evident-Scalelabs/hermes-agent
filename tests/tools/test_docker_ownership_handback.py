@@ -47,7 +47,9 @@ def _fake_docker(monkeypatch, security_options: str, fail: str = ""):
         out = {"run": "fake-cid\n", "info": security_options}.get(sub, "")
         if sub == "ps" and "status=exited" in argv:  # the orphan sweep finds the detached container
             out = "fake-cid\n"
-        if sub == "inspect" and argv[-1] == "fake-cid":
+        if sub == "inspect" and argv[-1] == "fake-cid" and "{{.Config.Image}}" in argv:
+            out = "python:3.12-slim"
+        elif sub == "inspect" and argv[-1] == "fake-cid":
             out = _inspect() if len(argv) == 3 else "2020-01-01T00:00:00Z" if "FinishedAt" in argv[3] else json.dumps(
                 json.loads(_inspect())[0]["Mounts"])
         if "--mount" in argv and fail == "strip":
@@ -64,6 +66,8 @@ def _fake_docker(monkeypatch, security_options: str, fail: str = ""):
     monkeypatch.setattr(docker_env.DockerEnvironment, "init_session", lambda self: None)
     monkeypatch.setattr(os, "geteuid", lambda: 1000)  # Hermes itself is not root
     monkeypatch.setattr(os, "getegid", lambda: 1000)
+    monkeypatch.setattr(os, "getuid", lambda: 1000)
+    monkeypatch.setattr(os, "getgid", lambda: 1000)
     return calls
 
 
