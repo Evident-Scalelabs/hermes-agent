@@ -1797,7 +1797,7 @@ class TestMultiplexBackgroundScope:
         assert created == ["p1-secret"]
 
     def test_daemon_start_thread_resolves_profile_secret(self, scoped_embedded):
-        created, _home = scoped_embedded
+        created, home = scoped_embedded
         p = HindsightMemoryProvider()
         p.initialize(session_id="s1", hermes_home=str(home), platform="cli")
         for t in threading.enumerate():
