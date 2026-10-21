@@ -1841,13 +1841,13 @@ def test_sync_bridge_is_profile_scoped_and_first_turn(tmp_path, monkeypatch):
                  "HINDSIGHT_BANK_ID": profile}
         if sync:
             scope["HINDSIGHT_RECALL_SYNC"] = "true"
-        token = set_secret_scope(scope)
+        token = set_secret_scope(scope, profile_home=str(home))
         p = HindsightMemoryProvider()
         try:
-            p.initialize(session_id="fresh", hermes_home=str(home))
-            p._client = _make_mock_client()
             manager = MemoryManager()
             manager.add_provider(p)
+            manager.initialize_all(session_id="fresh", hermes_home=str(home))
+            p._client = _make_mock_client()
             text = manager.prefetch_all("What prior page findings should inform this assessment?")
             assert bool(text) == sync
             if sync:

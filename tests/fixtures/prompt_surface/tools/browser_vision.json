@@ -8,6 +8,11 @@
         "description": "If true, overlay numbered [N] labels on interactive elements. Each [N] maps to ref @eN for subsequent browser commands. Useful for QA and spatial reasoning about page layout.",
         "type": "boolean"
       },
+      "full_page": {
+        "default": true,
+        "description": "With agent-browser, false captures the current viewport at its current scroll position; true captures the full page.",
+        "type": "boolean"
+      },
       "question": {
         "description": "What you want to know about the page visually. Be specific about what you're looking for.",
         "type": "string"
