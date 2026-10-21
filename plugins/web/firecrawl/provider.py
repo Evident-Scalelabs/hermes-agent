@@ -125,7 +125,7 @@ class _KeylessFirecrawlClient:
             raise httpx.HTTPStatusError(f"HTTP {response.status_code}: {response.text.strip()[:300]}", request=exc.request, response=response) from exc
         return response.json()
 
-    search = lambda self, *, query, limit=5: self._post("/v2/search", {"query": query, "limit": limit})  # noqa: E731
+    search = lambda self, *, query, limit=5: self._post("/v2/search", {"query": query, "limit": limit})
     def scrape(self, *, url, formats, **options):
         # ``timeout`` is the SDK's server-side deadline (ms); the v2 REST payload takes the same field.
         names = {"only_main_content": "onlyMainContent", "max_age": "maxAge"}
@@ -315,7 +315,7 @@ async def _scrape_one(url: str, formats: list[str], format: Optional[str]) -> di
         markdown, html = payload.get("markdown"), payload.get("html")
         content = markdown if format == "markdown" or (format is None and markdown) else html or markdown or ""
         return {"url": final_url, "title": title, "content": content, "raw_content": content, "metadata": metadata, "html": html or "", "provider": "firecrawl", "requestedUrl": url}
-    except Exception as scrape_err:  # noqa: BLE001
+    except Exception as scrape_err:
         logger.debug("Firecrawl scrape failed for %s: %s", url, scrape_err)
         return _error_entry(url, str(scrape_err), raw=True)
 

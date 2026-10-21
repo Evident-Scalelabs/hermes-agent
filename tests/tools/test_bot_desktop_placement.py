@@ -320,18 +320,3 @@ def test_forward_port_carries_bytes_both_ways_through_the_exec_stream(monkeypatc
         while b"\r\n\r\n" not in got:
             got += c.recv(65536)
     assert got.startswith(b"GET /JSON/VERSION HTTP/1.1")
-
-
-def test_sandbox_cdp_endpoint_is_rewritten_to_the_forwarded_local_port(monkeypatch):
-    from tools import browser_use_cli as buc
-    from tools import browser_tool_session as bts
-
-    monkeypatch.setattr(bts, "_browser_in_sandbox", lambda: True)
-    monkeypatch.setattr(runtime, "_sandbox_env", lambda *, create: _FakeDocker())
-    from tools.bot_desktop import sandbox_host
-    monkeypatch.setattr(sandbox_host, "_user_for", lambda e: "pn")
-    monkeypatch.setattr(streams, "forward_port", lambda env, port, *, remote_host="127.0.0.1", user=None: 45000 + port % 7)
-    assert buc._reach_sandbox_cdp("ws://127.0.0.1:9223/devtools/browser/abc") == "ws://127.0.0.1:45004/devtools/browser/abc"
-    assert buc._reach_sandbox_cdp("wss://cloud.example/session/1") == "wss://cloud.example/session/1"
-    monkeypatch.setattr(bts, "_browser_in_sandbox", lambda: False)
-    assert buc._reach_sandbox_cdp("ws://127.0.0.1:9223/x") == "ws://127.0.0.1:9223/x"

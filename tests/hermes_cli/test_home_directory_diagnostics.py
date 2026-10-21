@@ -7,6 +7,14 @@ import pytest
 from hermes_cli import config
 
 
+@pytest.fixture(autouse=True)
+def _desktop_permission_policy(monkeypatch):
+    """These cases exercise desktop home/link policy, independent of the test host."""
+    monkeypatch.setattr("hermes_constants._detect_container", lambda: False)
+    for name in ("HERMES_CONTAINER", "HERMES_SKIP_CHMOD", "HERMES_HOME_MODE", "HERMES_MANAGED"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.mark.platforms("linux")
 @pytest.mark.parametrize("subdir", (".", *config._HERMES_HOME_SUBDIRS))
 def test_unavailable_directory_links_are_diagnosed_without_creating_targets(tmp_path, monkeypatch, subdir):

@@ -32,7 +32,7 @@ def test_browser_setup_respects_provider_and_native_owner(monkeypatch, capsys, p
         before = dict(os.environ)
         _run_post_setup(provider)
         assert dict(os.environ) == before
-    install.assert_called_once()
+    install.assert_not_called()  # The retired Browser Use harness is never acquired.
     run.assert_not_called()
     if provider == 'browserbase':
         chromium.assert_not_called()
@@ -41,7 +41,9 @@ def test_browser_setup_respects_provider_and_native_owner(monkeypatch, capsys, p
     else:
         ensure.assert_called_once_with('agent-browser', explicit=True)
     output = capsys.readouterr().out
-    if docker:
+    if provider == 'browser_use_cli':
+        assert 'retired' in output
+    elif docker:
         assert 'Docker' in output
     elif provider == 'agent_browser':
         assert 'system' in output and 'npx' not in output
@@ -52,9 +54,10 @@ def test_browser_setup_respects_provider_and_native_owner(monkeypatch, capsys, p
 
 
 @pytest.mark.parametrize("status", [200, 503])
-def test_camofox_setup_leaves_external_server_and_config_owned_by_user(monkeypatch, capsys, status):
+def test_camofox_setup_remains_retired_with_an_external_server(monkeypatch, capsys, status):
     from hermes_cli.config import get_hermes_home
     from hermes_cli.tools_config_post_setup import _POST_SETUP_READY
+    from tools.browser_camofox import is_camofox_mode
 
     class Health(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -83,14 +86,14 @@ def test_camofox_setup_leaves_external_server_and_config_owned_by_user(monkeypat
                 run.assert_not_called()
                 ensure.assert_not_called()
                 assert _POST_SETUP_READY["camofox"]() is (status == 200)
+                assert is_camofox_mode() is False
         finally:
             server.shutdown()
             thread.join(timeout=5)
 
     assert config_path.read_bytes() == before
     output = capsys.readouterr().out
-    assert "externally managed" in output
-    assert ("reachable" if status == 200 else "not reachable") in output
+    assert "retired" in output and "agent-browser" in output
 
 
 @pytest.mark.parametrize("key,extra", [
