@@ -45,6 +45,8 @@ browser:
 
 Browser Use CLI/cloud, `browser_exec`, Nous browser hosting, and Camofox are retired in this fork. Existing selections of those routes return configuration guidance; no Browser Use installation or controller fallback is attempted.
 
+Legacy `browser.camofox.rewrite_loopback_urls` and `browser.camofox.loopback_host_alias` settings are inactive while the Camofox controller is retired.
+
 Each task owns its native browser session. CDP tasks also bind their own tab, so concurrent tasks do not share the same tab or daemon. Cleanup closes owned resources after inactivity or shutdown. To use an existing browser or saved logins, see [CDP connections](#local-chromium-family-browser-via-cdp-browser-connect) and [real-profile browsing](#real-profile-browsing-use-your-own-logins).
 
 ### Browserbase cloud mode
