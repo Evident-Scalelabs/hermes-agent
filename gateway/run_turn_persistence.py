@@ -165,6 +165,7 @@ class GatewayTurnPersistenceMixin:
                 require_platform_override_for={Platform.MATTERMOST},
             )
         except Exception:
+            logger.debug("Reasoning display configuration unavailable", exc_info=True)
             _show_reasoning_effective = (
                 False if source.platform == Platform.MATTERMOST else getattr(self, "_show_reasoning", False)
             )
@@ -185,6 +186,7 @@ class GatewayTurnPersistenceMixin:
                 _load_gateway_config(), _platform_config_key(source.platform), "reasoning_style", "code",
             )
         except Exception:
+            logger.debug("Reasoning style configuration unavailable", exc_info=True)
             _reasoning_style = "code"
         _quote = self._REASONING_QUOTE_STYLES.get(_reasoning_style)
         if _quote:
@@ -215,7 +217,7 @@ class GatewayTurnPersistenceMixin:
                 served_model=agent_result.get("served_model"),
             )
         except Exception as _footer_err:
-            logger.debug("runtime_footer build failed: %s", _footer_err)
+            logger.debug("runtime_footer build failed: %s", _footer_err, exc_info=True)
             return ""
 
     async def _hmwa_post_turn_hooks(self, hook_ctx, agent_result, response):
