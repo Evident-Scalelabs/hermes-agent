@@ -170,7 +170,7 @@ os._exit(0)
 """
             child = subprocess.run([sys.executable, '-c', child_code],
                                    env={**os.environ, 'AUDIT_SOCKET_ROOT': str(root)},
-                                   capture_output=True, text=True, timeout=30)
+                                   capture_output=True, text=True, timeout=30, check=False)
             assert child.returncode == 0, child.stderr
             child_info = json.loads(child.stdout.strip().splitlines()[-1])
             child_socket = root / f"agent-browser-{child_info['session_name']}"

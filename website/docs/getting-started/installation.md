@@ -78,6 +78,11 @@ Windows and glibc Linux). If a download fails, the install still completes and
 prints the command to retry.
 Other optional tools use their feature-specific installation paths.
 
+A new install lands on the latest stable release, the channel `hermes update`
+follows from then on (see [Updating](./updating.md)). To install the tip of
+`main` instead, pass `--channel main` on POSIX or `-Channel main` on Windows
+(or set `HERMES_INSTALL_CHANNEL=main` first, for the one-liners).
+
 To leave the browser tools out, pass `--skip-browser` on POSIX or `-SkipBrowser`
 on Windows; for the computer-use driver, `--skip-computer-use` /
 `-SkipComputerUse`. Hermes remembers these choices: later installs and
