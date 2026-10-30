@@ -23,6 +23,7 @@ def test_firecrawl_preserves_full_page_options_and_evidence():
     _truncate_results([result], 2000, {'pages_truncated': 0, 'truncation_metrics': []})
     projected = _trim_results([result])[0]
     assert seen['only_main_content'] is False and seen['max_age'] == 0
+    assert seen['proxy'] == 'basic'
     assert projected['html'].endswith('<footer>Disclosure</footer>')
     assert projected['metadata']['statusCode'] == 200
     assert projected['provider'] == 'firecrawl'
@@ -38,6 +39,15 @@ def test_keyless_firecrawl_preserves_full_page_options():
         'url': 'https://example.com', 'formats': ['markdown', 'html'],
         'onlyMainContent': False, 'maxAge': 0, 'timeout': 60_000,
     })
+
+
+def test_keyless_ring_firecrawl_extract_never_escalates_proxy():
+    from plugins.web.keyless_mcp import firecrawl_extract_keyless
+    with patch.object(provider._KeylessFirecrawlClient, '_post', return_value={'markdown': 'Offer'}) as post:
+        pages = firecrawl_extract_keyless(['https://example.com/offer'])
+    post.assert_called_once_with('/v2/scrape', {
+        'url': 'https://example.com/offer', 'formats': ['markdown'], 'proxy': 'basic'})
+    assert pages[0]['content'] == 'Offer'
 
 
 def test_firecrawl_cache_separates_full_page_options_and_honors_freshness(tmp_path, monkeypatch):
