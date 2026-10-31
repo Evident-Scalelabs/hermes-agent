@@ -91,6 +91,25 @@ class TestOpenRouterProfile:
         assert p.build_extra_body(model="openai/gpt-5.6-sol", provider_preferences={"ignore": ["x"]})["provider"] == {"ignore": ["x"]}
 
 
+class TestAIGatewayProfile:
+
+    def test_reported_cost_is_the_actual_session_cost(self):
+        """Gateway responses carry the debited USD in usage.cost; it replaces any price-table estimate."""
+        from types import SimpleNamespace
+
+        from agent.usage_pricing import estimate_usage_cost, normalize_usage
+
+        usage = normalize_usage(SimpleNamespace(prompt_tokens=33, completion_tokens=5, cost=1.59e-05, model_dump=lambda: {
+            "prompt_tokens": 33, "completion_tokens": 5, "cost": 1.59e-05, "market_cost": 1.59e-05}))
+        result = estimate_usage_cost("deepseek/deepseek-v4.1-flash-1017", usage, provider="ai-gateway")
+        assert (result.status, result.source, float(result.amount_usd)) == ("actual", "provider_cost_api", 1.59e-05)
+
+    def test_missing_cost_falls_back_to_native_pricing(self):
+        p = get_provider_profile("ai-gateway")
+        for raw in (None, {}, {"cost": None}, {"cost": True}, {"cost": "NaN"}, {"cost": -1}):
+            assert p.get_usage_cost("m", type("U", (), {"raw_usage": raw})()) is None
+
+
 class TestNousProfile:
 
     def test_sticky_session_id_normalizes_cron_timestamp(self):
