@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import suppress
 from dataclasses import dataclass
 import logging
+import time
 from typing import Any, Dict, Optional, Tuple
 
 from agent.message_metadata import append_message
@@ -163,7 +164,9 @@ def run_tool_round(
         with suppress(Exception):
             agent.stream_delta_callback(None)
 
-    agent._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)
+    from hermes_cli.plugins_dispatch import capture_pre_tool_timeouts
+    with capture_pre_tool_timeouts() as policy_timeouts:
+        agent._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)
     from hermes_cli.observability.shared_metrics_harness import finish_tool_round
 
     finish_tool_round(agent)
@@ -190,6 +193,13 @@ def run_tool_round(
                 with suppress(Exception):
                     agent.stream_delta_callback(final_response)
                     agent.stream_delta_callback(None)
+        return _verdict("break")
+
+    if not _recover_pre_tool_policy(agent, policy_timeouts):
+        _turn_exit_reason = "pre_tool_policy_unavailable"
+        final_response = "A required pre-tool policy is still unavailable after retry. The blocked tools did not run."
+        failed = True
+        agent._emit_diagnostic_status(final_response)
         return _verdict("break")
 
     # Reset per-turn retry counters so one truncation can't poison the turn.
@@ -231,6 +241,23 @@ def run_tool_round(
     # the gateway kills the session before the next activity touch fires (#69559, #69131).
     agent._touch_activity(f"tool results posted, continuing iteration #{api_call_count}")
     return _verdict("continue")
+
+
+def _recover_pre_tool_policy(agent: Any, deadlines: list[float]) -> bool:
+    """Allow one recovery round after the actual hook cooldown. A healthy round resets it."""
+    already_retried = agent._retried_pre_tool_policy
+    agent._retried_pre_tool_policy = bool(deadlines)
+    if not deadlines or agent.is_interrupted:
+        return True
+    if already_retried:
+        return False
+    # Parallel results are already committed. Wait outside the tool/hook deadlines;
+    # the model's next choice must still pass the regular authorization path.
+    retry_at = max(deadlines)
+    logger.warning("Required pre-tool policy unavailable; pausing inference for up to %.1fs", max(0, retry_at - time.monotonic()))
+    while not agent.is_interrupted and (remaining := retry_at - time.monotonic()) > 0:
+        agent._hard_interrupt_requested.wait(min(remaining, 0.25))
+    return True
 
 
 def stage_tool_call_message(

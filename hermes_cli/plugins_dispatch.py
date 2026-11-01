@@ -16,6 +16,7 @@ import re
 import threading
 import time
 import types
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Union
 
@@ -65,6 +66,17 @@ _HOOK_TIMEOUT_SUPPRESSION_SECONDS = 60.0
 # Live workers a hung callback may accumulate before it is skipped outright (#105223 / #98382).
 _HOOK_MAX_ABANDONED_WORKERS = 3
 _PRE_TOOL_CALL_TIMEOUT_BLOCK_MESSAGE = "pre_tool_call plugin callback timed out or is still running"
+
+# The executor propagates the model round's context to its tool workers. A later round
+# or another session gets its own collection, even if an abandoned worker finishes late.
+_pre_tool_timeouts = contextvars.ContextVar[list[float] | None]("pre_tool_timeouts", default=None)
+
+
+@contextmanager
+def capture_pre_tool_timeouts():
+    deadlines: list[float] = []
+    with _pre_tool_timeouts.set(deadlines):
+        yield deadlines
 
 
 def _policy_error_block_directive(hook_name: str, cb: Callable, exc: BaseException) -> dict[str, str]:
@@ -281,7 +293,7 @@ class PluginDispatchMixin:
                     ret = self._run_hook_callback_bounded(hook_name, cb, kwargs, timeout)
                     if ret is _HOOK_SKIPPED:
                         if fail_closed:  # policy hook: fail closed with a block directive
-                            results.append({"action": "block", "message": _PRE_TOOL_CALL_TIMEOUT_BLOCK_MESSAGE})
+                            results.append(self._pre_tool_timeout_block(cb))
                         continue
                 else:
                     ret = self._invoke_hook_callback(cb, kwargs)
@@ -292,6 +304,13 @@ class PluginDispatchMixin:
                 if fail_closed:  # a guard that raised made no decision: same veto as a timeout
                     results.append(_policy_error_block_directive(hook_name, cb, exc))
         return results
+
+    def _pre_tool_timeout_block(self, cb: Callable) -> dict[str, str]:
+        deadlines = _pre_tool_timeouts.get()
+        if deadlines is not None:
+            with self._hook_timeout_lock:
+                deadlines.append(self._hook_timeout_suppressed_until.get(("pre_tool_call", id(cb)), 0.0))
+        return {"action": "block", "message": _PRE_TOOL_CALL_TIMEOUT_BLOCK_MESSAGE}
 
     def _report_hook_failure(
         self, hook_name: str, cb: Callable, kwargs: dict[str, Any], exc: BaseException, *, surface: str = "Hook"
@@ -566,7 +585,7 @@ class PluginDispatchMixin:
             except TimeoutError:
                 logger.warning("Hook '%s' callback %s timed out after %.0fs", hook_name, callback_name, timeout)
                 if fail_closed:  # policy hook: fail closed with a block directive
-                    results.append({"action": "block", "message": _PRE_TOOL_CALL_TIMEOUT_BLOCK_MESSAGE})
+                    results.append(self._pre_tool_timeout_block(cb))
             except (Exception, SystemExit) as exc:
                 # Same isolation + failure contract as the sync path (#111922 warn-once, #109624
                 # a raising policy guard fails closed).

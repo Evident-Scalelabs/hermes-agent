@@ -1,6 +1,8 @@
 """Runtime tests for tool-call loop guardrails."""
 
 import json
+import threading
+import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -104,6 +106,55 @@ def test_gateway_platform_uses_hard_stop_default_without_cli_opt_in():
     decision = agent._tool_guardrails.before_call("web_search", args)
     assert decision.action == "block"
     assert decision.code == "repeated_exact_failure_block"
+
+
+@pytest.mark.parametrize("persistent", [False, True], ids=["recovers", "stays-unavailable"])
+def test_pre_tool_policy_timeout_waits_once_before_more_inference(monkeypatch, persistent):
+    from hermes_cli import plugins
+
+    agent = _make_agent("read_file")
+    manager = plugins.PluginManager()
+    manager._hook_timeout_suppression_seconds = 0.4
+    release = threading.Event()
+    starts = []
+
+    def policy(**kwargs):
+        starts.append(kwargs["tool_call_id"])
+        if persistent or len(starts) == 1:
+            release.wait(5)
+
+    manager._hooks["pre_tool_call"] = [policy]
+    monkeypatch.setattr("hermes_cli.lifecycle.invoke_hook", manager.invoke_hook)
+    monkeypatch.setattr(plugins, "_resolve_hook_callback_timeout", lambda: 0.03)
+    inference_during_cooldown = []
+
+    def model(**kwargs):
+        inference_during_cooldown.append(any(
+            until > time.monotonic() for until in manager._hook_timeout_suppressed_until.values()
+        ))
+        if len(inference_during_cooldown) > 2:
+            return _mock_response(content="done")
+        # Sibling calls denied in a single model response share one recovery.
+        paths = ["a", "b"] if len(inference_during_cooldown) == 1 else ["a"]
+        return _mock_response(content=None, finish_reason="tool_calls", tool_calls=[
+            _mock_tool_call("read_file", json.dumps({"path": path})) for path in paths
+        ])
+
+    agent.client.chat.completions.create.side_effect = model
+    try:
+        with patch("model_tools.handle_function_call", return_value="file content") as read:
+            result = agent.run_conversation("Read the files.")
+    finally:
+        release.set()
+    assert not any(inference_during_cooldown)
+    assert len(starts) == 2
+    if persistent:
+        assert len(inference_during_cooldown) == 2
+        assert result["failed"] and result["turn_exit_reason"] == "pre_tool_policy_unavailable"
+        read.assert_not_called()
+    else:
+        assert result["completed"] and result["final_response"] == "done"
+        read.assert_called_once()
 
 
 @pytest.mark.parametrize("platform", ["desktop", "acp"])
