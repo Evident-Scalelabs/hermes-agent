@@ -75,8 +75,11 @@ _pre_tool_timeouts = contextvars.ContextVar[list[float] | None]("pre_tool_timeou
 @contextmanager
 def capture_pre_tool_timeouts():
     deadlines: list[float] = []
-    with _pre_tool_timeouts.set(deadlines):
+    token = _pre_tool_timeouts.set(deadlines)
+    try:
         yield deadlines
+    finally:
+        _pre_tool_timeouts.reset(token)
 
 
 def _policy_error_block_directive(hook_name: str, cb: Callable, exc: BaseException) -> dict[str, str]:
