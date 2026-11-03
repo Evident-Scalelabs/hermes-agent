@@ -292,11 +292,11 @@ def firecrawl_search_keyless(query: str, limit: int = 5) -> dict[str, Any]:
 
 
 def firecrawl_extract_keyless(urls: list[str]) -> list[dict[str, Any]]:
-    from plugins.web.firecrawl.provider import _KeylessFirecrawlClient, _extract_scrape_payload
+    from plugins.web.firecrawl.provider import _SCRAPE_PROXY, _KeylessFirecrawlClient, _extract_scrape_payload
     client = _KeylessFirecrawlClient()
 
     def _fetch(url: str) -> dict[str, Any]:
-        payload = _extract_scrape_payload(client.scrape(url=url, formats=["markdown"])) or {}
+        payload = _extract_scrape_payload(client.scrape(url=url, formats=["markdown"], proxy=_SCRAPE_PROXY)) or {}
         metadata = payload.get("metadata") or {}
         title = metadata.get("title") if isinstance(metadata, dict) else None
         return _page(url, title or "", payload.get("markdown") or payload.get("html") or "")

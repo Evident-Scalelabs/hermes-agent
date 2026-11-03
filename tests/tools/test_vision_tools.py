@@ -504,6 +504,44 @@ class TestVisionSafetyGuards:
 
         assert dest.read_bytes() == body
 
+    @pytest.mark.asyncio
+    async def test_download_names_client_and_contact_instead_of_browser(self, tmp_path):
+        """Media downloads identify Hermes with a contact page, not a browser user agent."""
+        from tools.vision_tools import _download_image
+
+        class _FakeStreamResponse:
+            url = "https://example.com/cat.png"
+            headers = {}
+
+            def raise_for_status(self):
+                return None
+
+            async def aiter_bytes(self):
+                yield VALID_PNG
+
+        class _FakeAsyncStream:
+            async def __aenter__(self):
+                return _FakeStreamResponse()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        with (
+            patch("tools.vision_tools.check_website_access", return_value=None),
+            patch("tools.vision_tools.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.stream.return_value = _FakeAsyncStream()
+            mock_client_cls.return_value = mock_client
+
+            await _download_image("https://example.com/cat.png", tmp_path / "cat.png", max_retries=1)
+
+        user_agent = mock_client.stream.call_args.kwargs["headers"]["User-Agent"]
+        assert user_agent.startswith("Hermes-Agent/") and "(+https://" in user_agent
+        assert not any(token in user_agent for token in ("Mozilla", "Chrome", "Safari"))
+
 
 # ---------------------------------------------------------------------------
 # check_vision_requirements

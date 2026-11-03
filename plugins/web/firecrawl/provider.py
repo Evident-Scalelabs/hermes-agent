@@ -22,6 +22,8 @@ from tools.website_policy import check_website_access
 logger = logging.getLogger(__name__)
 
 _FIRECRAWL_CLOUD_API_URL = "https://api.firecrawl.dev"
+# The API default ``auto`` retries a 401/403/429 through enhanced proxies; ``basic`` returns the block as is.
+_SCRAPE_PROXY = "basic"
 
 # The SDK costs ~200ms of imports on a cold CLI; defer to first use (tests patch ``Firecrawl`` here).
 _FIRECRAWL_CLS_CACHE: Optional[type] = None
@@ -291,6 +293,7 @@ async def _scrape_one(url: str, formats: list[str], format: Optional[str]) -> di
                     url=url,
                     formats=formats,
                     timeout=60_000,
+                    proxy=_SCRAPE_PROXY,
                     **options,
                 ),
                 timeout=60,

@@ -144,10 +144,8 @@ def _is_retryable_download_error(error: Exception) -> bool:
     return True
 
 
-_DOWNLOAD_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
+# Name the client and a contact page; never present as a browser.
+_DOWNLOAD_USER_AGENT = "Hermes-Agent/1.0 (+https://evident.so/bot)"
 
 
 def _managed_install() -> bool:
