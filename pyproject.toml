@@ -265,7 +265,7 @@ messaging = [
   "python-telegram-bot[webhooks]==22.8",
   "discord.py[voice]==2.7.1",
   "aiohttp==3.14.5",
-  "brotlicffi==1.2.0.2",
+  "brotlicffi==1.2.1.0",
   "slack-bolt==1.30.0",
   "slack-sdk==3.44.1",
   "qrcode==7.4.2",
@@ -471,9 +471,10 @@ google = [
   # The Google SDKs permit older vulnerable transitives, so unlocked installs
   # must carry the same fixed floors as uv.lock and the runtime installers:
   # httplib2 0.32.0 (GHSA-j5g9-f88f-gfj3 decompression bomb DoS),
-  # pyasn1 0.6.4, google-auth 2.55.1.
+  # pyasn1 0.6.5, oauthlib 4.0.1, google-auth 2.55.1.
   "httplib2==0.32.0",
-  "pyasn1==0.6.4",
+  "pyasn1==0.6.5",
+  "oauthlib==4.0.1",
 ]
 youtube = [
   # Required by skills/media/youtube-content and
