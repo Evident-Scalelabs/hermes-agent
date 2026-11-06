@@ -279,7 +279,9 @@ def browser_exec_available() -> bool:
 
 def uses_typed_browser() -> bool:
     """The Evident image may opt a profile into the existing typed browser contract."""
-    return _read_browser_cfg().get("backend") == "off"
+    browser = _read_browser_cfg()
+    legacy = browser.get("backend")
+    return browser.get("evident_typed_tools") is True or legacy is False or legacy == "off"
 
 
 def _workspace_dir(task_id: Optional[str]) -> Optional[str]:

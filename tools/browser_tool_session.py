@@ -757,7 +757,7 @@ def _browser_command_preflight() -> dict[str, Any]:
         return {"browser_cmd": _SANDBOX_AGENT_BROWSER}  # resolved inside the sandbox, not on this host
     from tools.browser_use_cli import uses_typed_browser
     if not uses_typed_browser():
-        return {"success": False, "error": "The typed browser requires browser.backend: off."}
+        return {"success": False, "error": "The typed browser requires browser.evident_typed_tools."}
 
     try:
         browser_cmd = _install._find_agent_browser()

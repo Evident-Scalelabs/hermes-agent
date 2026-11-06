@@ -6,7 +6,7 @@ import functools
 import os
 import shutil
 
-from hermes_constants import agent_browser_runnable, is_termux as _is_termux_environment
+from hermes_constants import _run_version_probe, is_termux as _is_termux_environment, with_hermes_node_path
 from tools.browser_tool_origin import origin_module as _origin
 from tools import browser_tool_cdp as _cdp
 from tools import browser_tool_cloud as _cloud
@@ -55,6 +55,13 @@ def _agent_browser_candidate_present(path: str | None) -> bool:
     if not path:
         return False
     return os.path.isfile(path) and (os.name == "nt" or os.access(path, os.X_OK))
+
+
+def agent_browser_runnable(path: str) -> bool:
+    if not _agent_browser_candidate_present(path):
+        return False
+    result = _run_version_probe([path, "--version"], env=with_hermes_node_path())
+    return result is not None and result.returncode == 0
 
 
 def _find_agent_browser(*, validate: bool = True) -> str:
