@@ -131,6 +131,7 @@ dependencies = [
   # Browser CDP supervisor + browser_dialog import this directly. Keep core
   # so browser tool discovery doesn't fail on lean installs.
   "websockets==15.0.1; python_version >= '3.14'",
+  "browser-harness==0.1.13; python_version >= '3.14'",
   # .gitignore-aware file matching for desktop build stamp.
   "pathspec==1.1.1; python_version >= '3.14'",
   "fastapi>=0.104.0,<1; python_version >= '3.14'",

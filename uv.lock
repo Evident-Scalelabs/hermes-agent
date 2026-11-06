@@ -681,6 +681,21 @@ wheels = [
 ]
 
 [[package]]
+name = "browser-harness"
+version = "0.1.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cdp-use" },
+    { name = "fetch-use" },
+    { name = "pillow" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7f/fe/59ab493e7cf76731a7f5aabae3821eea6ea82a628c14c30e7aed48adc362/browser_harness-0.1.13.tar.gz", hash = "sha256:284dc547a042c309feafd9a9f4a74b2a8651b7963ea3ac6cb2f2d64889f6a8f3", size = 114905, upload-time = "2026-09-04T02:53:23.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/bd/f166cf9a465eff436048d25851ab28b0d798af02b56998127a4165227fc4/browser_harness-0.1.13-py3-none-any.whl", hash = "sha256:2491459e4bfc0ee8aea22dc6c4680fc0f791b7ba553446323c50d2883449d769", size = 121123, upload-time = "2026-09-04T02:53:21.841Z" },
+]
+
+[[package]]
 name = "catalogue"
 version = "2.0.10"
 source = { registry = "https://pypi.org/simple" }
@@ -735,6 +750,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d1/63/074eb7c1a4a41a9ddf930ec911888dda7ea3c88dca85df316e5b7aeb53c7/cbor2-6.1.5-cp314-cp314t-win32.whl", hash = "sha256:7dfb68b65d6b0d0d90512626247bfa4993354f1e2b2d83b28b51785e63853422", size = 284236, upload-time = "2026-10-01T18:09:02.335Z" },
     { url = "https://files.pythonhosted.org/packages/04/97/687b31a25f4755d71912682587f6d909f751a06cf8d2e68dc8737ac20537/cbor2-6.1.5-cp314-cp314t-win_amd64.whl", hash = "sha256:e1e8a6a72c7ab2f82579497cb1d5564987b02559ab980fe6a5f82a7d65031d19", size = 313558, upload-time = "2026-10-01T18:09:03.916Z" },
     { url = "https://files.pythonhosted.org/packages/85/d7/6a3fe78c3d79385bedb1a40b8d1554bbcb03b8762ed5847e77ec9b86b777/cbor2-6.1.5-cp314-cp314t-win_arm64.whl", hash = "sha256:edc4a4dfa313b2cd78d7562cb99b51615e06c89832b78c0c02e2b5c2e27906ae", size = 301775, upload-time = "2026-10-01T18:09:05.503Z" },
+]
+
+[[package]]
+name = "cdp-use"
+version = "1.4.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/7a/c549417e8c5e4dface6d5d828cd7dc72502dcea33a99f5324abf5a853ce9/cdp_use-1.4.5.tar.gz", hash = "sha256:0da3a32df46336a03ff5a22bc6bc442cd7d2f2d50a118fd4856f29d37f6d26a0", size = 193961, upload-time = "2026-02-22T04:32:50.574Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/12/386d8c6bf0448c43674e24d6194c3b57d62e5361e90bca3d58108819ad32/cdp_use-1.4.5-py3-none-any.whl", hash = "sha256:8f8e2435e3a20e4009d2974144192cf3c132f6c2971338e156198814d9b91ecb", size = 350504, upload-time = "2026-02-22T04:32:49.22Z" },
 ]
 
 [[package]]
@@ -1793,6 +1822,15 @@ wheels = [
 ]
 
 [[package]]
+name = "fetch-use"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/2d/66784fa8b66a04f170ad8f6598688b30b3a194dad4185b36d53da4ae1505/fetch_use-0.4.0.tar.gz", hash = "sha256:9511987d4907ec6dac501e21d66946d10098f66b5d21bc2aba4189cd81ba189a", size = 8974, upload-time = "2026-04-09T04:02:44.384Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/97/d4104692aa5c99a30fea22b5adffd2ce35b1ad86ae5236766cfc1ae468f1/fetch_use-0.4.0-py3-none-any.whl", hash = "sha256:b7885f2907e7920373fa75dcdb00afd6e603a25a9ee2151aa2881f5465e1a2c0", size = 9468, upload-time = "2026-04-09T04:02:43.458Z" },
+]
+
+[[package]]
 name = "filelock"
 version = "4.2.6"
 source = { registry = "https://pypi.org/simple" }
@@ -2260,6 +2298,7 @@ version = "0.0.0"
 source = { editable = "." }
 default-groups = []
 dependencies = [
+    { name = "browser-harness" },
     { name = "certifi" },
     { name = "concurrent-log-handler", marker = "sys_platform == 'win32'" },
     { name = "croniter" },
@@ -2591,6 +2630,7 @@ requires-dist = [
     { name = "azure-identity", marker = "extra == 'azure-identity'", specifier = "==1.26.0" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = "==1.43.115" },
     { name = "brotlicffi", marker = "extra == 'messaging'", specifier = "==1.2.1.0" },
+    { name = "browser-harness", marker = "python_full_version >= '3.14'", specifier = "==0.1.13" },
     { name = "certifi", marker = "python_full_version >= '3.14'", specifier = "==2026.10.23" },
     { name = "concurrent-log-handler", marker = "python_full_version >= '3.14' and sys_platform == 'win32'", specifier = "==0.9.30" },
     { name = "croniter", marker = "python_full_version >= '3.14'", specifier = "==6.2.4" },
