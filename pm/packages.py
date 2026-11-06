@@ -1023,16 +1023,13 @@ class AgentBrowser(BinaryPackage):
 
 @register
 class Chromium(Package):
-    """Playwright resolves browsers by DIRECTORY NAME under one root:
-    `<name with '-'→'_'>-<revision>`, no target suffix. The env points
-    PLAYWRIGHT_BROWSERS_PATH at the store root itself. The entry carries
-    the INSTALLATION_COMPLETE marker playwright checks.
+    """Full Chrome for Testing browser with a store entry separate from Playwright.
 
-    The version is `<playwright revision>+<chrome version>` — most targets
-    download from the Chrome-for-Testing CDN by chrome version, and the
-    targets CfT doesn't build (linux-arm64) come from playwright's own
-    mirror by revision. The store entry is named by revision only, which
-    is all playwright's resolver reads."""
+    Older locks use `<playwright revision>+<chrome version>` and keep the
+    `chromium-<revision>` directory and Playwright ARM64 mirror. A standalone
+    Chrome version uses Chrome for Testing on every supported target and a
+    directory outside Playwright's browser cache naming scheme.
+    """
 
     name = "chromium"
     optional = True
@@ -1045,13 +1042,13 @@ class Chromium(Package):
     emulated_arch_targets = frozenset({"win32-arm64"})
     _CDN = "https://cdn.playwright.dev"
 
-    # Chrome-for-Testing platform names; targets absent here fall back to
-    # playwright's dbazure mirror with its own platform names.
+    # Chrome-for-Testing platform names.
     # win32-arm64 uses the win64 (x64) build: CfT publishes no native
     # win-arm64 chromium, and Windows ARM64 runs x64 binaries via built-in
     # emulation — the same choice agent-browser's own postinstall makes.
     _CFT = {
         "linux-x64": "linux64",
+        "linux-arm64": "linux-arm64",
         "darwin-x64": "mac-x64",
         "darwin-arm64": "mac-arm64",
         "win32-x64": "win64",
@@ -1060,19 +1057,20 @@ class Chromium(Package):
     _MIRROR = {"linux-arm64": "linux-arm64"}
 
     def store_entry(self, version: str, target: str) -> str:
-        revision = version.partition("+")[0]
-        return f"{self.name.replace('-', '_')}-{revision}"
+        revision, legacy, _ = version.partition("+")
+        if legacy:
+            return f"chromium-{revision}"
+        return f"chrome-for-testing-{version}"
 
     def fetch_url(self, version: str, target: str) -> str:
-        revision, _, chrome = version.partition("+")
-        plat = self._CFT.get(target)
-        if plat and chrome:
-            return f"{self._CDN}/builds/cft/{chrome}/{plat}/chrome-{plat}.zip"
-        mirror_plat = self._MIRROR[target]
-        return (
-            f"{self._CDN}/dbazure/download/playwright/builds/chromium/"
-            f"{revision}/chromium-{mirror_plat}.zip"
-        )
+        revision, legacy, chrome = version.partition("+")
+        if legacy and target in self._MIRROR:
+            return (
+                f"{self._CDN}/dbazure/download/playwright/builds/chromium/"
+                f"{revision}/chromium-{self._MIRROR[target]}.zip"
+            )
+        plat = self._CFT[target]
+        return f"{self._CDN}/builds/cft/{chrome or version}/{plat}/chrome-{plat}.zip"
 
     def binary(self, entry: Path, target: str) -> Optional[Path]:
         # CfT and Playwright's ARM Linux archive use different enclosing
