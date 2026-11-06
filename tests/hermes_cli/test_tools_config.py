@@ -1,7 +1,6 @@
 """Tests for hermes_cli.tools_config platform tool persistence."""
 
 import logging
-import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -52,6 +51,20 @@ def test_valid_platform_toolsets_no_runtime_warning(caplog):
 
     with caplog.at_level(logging.WARNING, logger="hermes_cli.tools_config"):
         _get_platform_tools(config, "cli")
+
+    assert not any("#38798" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("platform", ["teams", "google_chat", "homeassistant"])
+def test_unloaded_plugin_platform_toolset_no_runtime_warning(caplog, platform):
+    """Bundled and catalog plugin-platform entries are valid before plugin loading."""
+    import hermes_cli.tools_config as _tc
+
+    _tc._warned_invalid_platform_toolsets.discard(platform)
+    config = {"platform_toolsets": {platform: [f"hermes-{platform}"]}}
+
+    with caplog.at_level(logging.WARNING, logger="hermes_cli.tools_config"):
+        _get_platform_tools(config, platform)
 
     assert not any("#38798" in r.getMessage() for r in caplog.records)
 
@@ -413,7 +426,7 @@ def test_a_saved_disabled_mcp_server_does_not_enable_every_other_server(listed):
 
 
 
-class TestAgentBrowserPostSetup:
+class TestChromiumPostSetup:
     """Cloud isolation, image ownership, and failed setup remain observable."""
 
     @pytest.fixture(autouse=True)
@@ -421,46 +434,49 @@ class TestAgentBrowserPostSetup:
         with patch("hermes_cli.tools_config_post_setup._ensure_browser_use_cli") as stub:
             yield stub
 
-    @pytest.fixture(autouse=True)
-    def _stub_package_install(self):
-        with patch("pm.ensure") as ensure:
-            yield ensure
-
-
-
-    @pytest.mark.parametrize("failure", ["pm", "timeout"])
-    def test_install_failure_reports_error(self, failure):
+    @pytest.mark.parametrize("failure", ["pm", "worker"])
+    def test_install_failure_reports_error(self, failure, tmp_path):
         import pm
 
-        error = (pm.InstallError("agent-browser", "fatal: network error") if failure == "pm"
-                 else subprocess.TimeoutExpired(cmd=["agent-browser"], timeout=600))
+        error = (pm.InstallError("chromium", "fatal: network error") if failure == "pm"
+                 else RuntimeError("worker exited unsuccessfully"))
         with patch("pm.ensure", side_effect=error), patch(
-            "tools.browser_tool_install._running_in_docker", return_value=False
+            "hermes_cli.browser_runtime.chromium_executable", return_value=None
+        ), patch("hermes_cli.browser_runtime.BAKED_EXECUTABLE_FILE", tmp_path / "absent"), patch(
+            "hermes_constants.is_termux", return_value=False
         ), patch("hermes_cli.tools_config_post_setup._print_warning") as warn, patch(
             "hermes_cli.tools_config_post_setup._print_info"
         ) as info:
-            _run_post_setup("agent_browser")
+            _run_post_setup("chromium")
 
         assert any(str(error) in c.args[0] for c in warn.call_args_list)
-        assert any("hermes tools post-setup agent_browser" in c.args[0] for c in info.call_args_list)
+        assert any("hermes tools post-setup chromium" in c.args[0] for c in info.call_args_list)
 
 
-class TestRetiredBrowserControllers:
-    @pytest.mark.parametrize("key", ["agent_browser", "browserbase", "lightpanda"])
-    def test_native_setup_does_not_install_alternate_controller(self, key):
+class TestBrowserExecEngineCheckedForEveryBrowserRow:
+    """browser-harness is browser_exec's engine for every browser row, so each hook confirms it."""
+
+    @pytest.mark.parametrize("key", ["chromium", "browserbase", "lightpanda"])
+    def test_browser_post_setup_attempts_cli_install(self, key):
         with patch("hermes_cli.tools_config_post_setup._ensure_browser_use_cli") as ensure, patch(
             "shutil.which", return_value=None
-        ), patch("subprocess.run"), patch("pm.ensure"):
+        ), patch("subprocess.run"), patch("pm.ensure"), patch(
+            "hermes_cli.browser_runtime.chromium_executable", return_value="/pm/chrome"
+        ), patch("tools.browser_lightpanda.find_lightpanda_binary", return_value=None):
             _run_post_setup(key)
-        ensure.assert_not_called()
+        ensure.assert_called_once()
 
-    @pytest.mark.parametrize("key", ["browser_use_cli", "camofox"])
-    def test_retired_setup_reports_without_installing(self, key, capsys):
-        with patch("pm.ensure") as ensure, patch("subprocess.run") as run:
-            _run_post_setup(key)
-        ensure.assert_not_called()
-        run.assert_not_called()
-        assert "retired" in capsys.readouterr().out.lower()
+    def test_ensure_helper_missing_harness_is_non_fatal(self):
+        """A missing harness must warn and point at `hermes update`, never raise."""
+        from hermes_cli.tools_config import _ensure_browser_use_cli
+
+        with patch("tools.browser_use_cli._find_cli", return_value=None), patch(
+            "hermes_cli.tools_config_post_setup._print_warning"
+        ) as warn, patch("hermes_cli.tools_config_post_setup._print_info") as info:
+            _ensure_browser_use_cli()  # must not raise
+
+        assert any("browser-harness" in c.args[0] for c in warn.call_args_list)
+        assert any("hermes update" in c.args[0] for c in info.call_args_list)
 
 
 class TestImagegenBackendRegistry:
@@ -1019,7 +1035,7 @@ class TestLightpandaPostSetup:
              patch("hermes_cli.tools_config_post_setup._print_success") as ok, \
              patch("hermes_cli.tools_config_post_setup._print_warning") as warn:
             _run_post_setup("lightpanda")
-        _stub_browser_use_install.assert_not_called()
+        _stub_browser_use_install.assert_called_once()
         assert "/opt/lightpanda" in ok.call_args.args[0]
         warn.assert_not_called()
 

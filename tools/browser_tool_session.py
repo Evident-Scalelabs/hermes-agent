@@ -755,13 +755,9 @@ def _browser_command_preflight() -> dict[str, Any]:
         if is_interrupted():
             return {"success": False, "error": "Interrupted"}
         return {"browser_cmd": _SANDBOX_AGENT_BROWSER}  # resolved inside the sandbox, not on this host
-    try:
-        from tools.browser_use_cli import retired_browser_backend_error
-        retired = retired_browser_backend_error()
-        if retired:
-            return {"success": False, "error": retired}
-    except Exception as e:
-        _bt.logger.debug("retired browser backend check failed: %s", e)
+    from tools.browser_use_cli import uses_typed_browser
+    if not uses_typed_browser():
+        return {"success": False, "error": "The typed browser requires browser.backend: off."}
 
     try:
         browser_cmd = _install._find_agent_browser()

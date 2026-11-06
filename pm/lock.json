@@ -1,14 +1,5 @@
 {
   "packages": {
-    "agent-browser": {
-      "artifacts": {
-        "any": {
-          "sha256": "682d11796d6dd39f010584f6e5e6a885f3d7bab3e6172ff26363477bcfc9515c",
-          "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-0.41.0.tgz"
-        }
-      },
-      "version": "0.41.0"
-    },
     "bws": {
       "artifacts": {
         "darwin-arm64": {
