@@ -138,13 +138,14 @@ def browser_profile_dir(env: Any) -> str:
 _CHROMIUM_PROBE = (
     'for d in "${PLAYWRIGHT_BROWSERS_PATH:-}" /opt/playwright "$HOME/.cache/ms-playwright"; do'
     ' [ -n "$d" ] || continue;'
-    ' for c in "$d"/chromium-*/chrome-linux/chrome "$d"/chromium-*/chrome-linux64/chrome; do'
+    ' for c in "$d"/chrome-for-testing-*/chrome-linux-arm64/chrome "$d"/chrome-for-testing-*/chrome-linux64/chrome'
+    ' "$d"/chromium-*/chrome-linux/chrome "$d"/chromium-*/chrome-linux64/chrome; do'
     ' [ -x "$c" ] && { printf %s "$c"; exit 0; }; done; done; exit 1'
 )
 
 
 def chromium_executable(env: Any) -> Optional[str]:
-    """Path of the Playwright Chromium agent-browser uses inside ``env`` (the dock's Browser icon must run
+    """Path of the Chromium agent-browser uses inside ``env`` (the dock's Browser icon must run
     the same binary), or None when the image has none. Cached on the env."""
     cached = getattr(env, "_bd_chromium", "unset")
     if cached != "unset":
