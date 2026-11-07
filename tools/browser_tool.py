@@ -1385,8 +1385,8 @@ def _typed_browser_check(check):
 
 def _routed_handler(name: str, fallback):
     def handler(args, **kw):
-        return record_browser_call(lambda legacy: routed_browser_handler(
-            name, args, fallback=lambda: legacy(lambda: fallback(args, kw)),
+        return record_browser_call(lambda: routed_browser_handler(
+            name, args, fallback=lambda: fallback(args, kw),
             task_id=kw.get("task_id"), session_id=kw.get("session_id"),
         ), _cloud.browser_backend_name)
     return handler
