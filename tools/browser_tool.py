@@ -1375,6 +1375,14 @@ def _routed_check_fn(name: str):
     return check
 
 
+def _typed_browser_check(check):
+    def available():
+        from tools.browser_use_cli import uses_typed_browser
+
+        return uses_typed_browser() and check()
+    return available
+
+
 def _routed_handler(name: str, fallback):
     def handler(args, **kw):
         return record_browser_call(lambda legacy: routed_browser_handler(
@@ -1389,4 +1397,4 @@ for _name, _emoji, _check_fn, _defaults, *_extra in _BROWSER_TOOL_TABLE:
         _check_fn = globals()[f"check_{_name}_requirements"] = _routed_check_fn(_name)
     registry.register(name=_name, toolset="browser", schema=_BROWSER_SCHEMA_MAP[_name],
                       handler=_routed_handler(_name, _fallback_call(_name, _defaults, *_extra)),
-                      check_fn=_check_fn, emoji=_emoji)
+                      check_fn=_typed_browser_check(_check_fn), emoji=_emoji)

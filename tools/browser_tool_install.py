@@ -6,7 +6,7 @@ import functools
 import os
 import shutil
 
-from hermes_constants import agent_browser_runnable, is_termux as _is_termux_environment
+from hermes_constants import _run_version_probe, is_termux as _is_termux_environment, with_hermes_node_path
 from tools.browser_tool_origin import origin_module as _origin
 from tools import browser_tool_cdp as _cdp
 from tools import browser_tool_cloud as _cloud
@@ -48,7 +48,7 @@ def _merge_browser_path(existing_path: str = "") -> str:
 def _browser_install_hint() -> str:
     if _is_termux_environment():
         return "npm install -g agent-browser && agent-browser install"
-    return "hermes pm install agent-browser (system libraries: npx playwright install-deps chromium)"
+    return "Use the Evident image or put agent-browser on PATH."
 
 
 def _agent_browser_candidate_present(path: str | None) -> bool:
@@ -57,21 +57,15 @@ def _agent_browser_candidate_present(path: str | None) -> bool:
     return os.path.isfile(path) and (os.name == "nt" or os.access(path, os.X_OK))
 
 
+def agent_browser_runnable(path: str) -> bool:
+    if not _agent_browser_candidate_present(path):
+        return False
+    result = _run_version_probe([path, "--version"], env=with_hermes_node_path())
+    return result is not None and result.returncode == 0
+
+
 def _find_agent_browser(*, validate: bool = True) -> str:
-    """Select PM's exact binary, then an external PATH/Homebrew installation.
-
-    Termux owns its browser installation. Elsewhere PM may acquire a missing
-    CLI at execution time, subject to its lazy-install policy. Readiness checks
-    (``validate=False``) never execute or install anything. Selection is not
-    cached: a new PM fact or profile must be visible immediately.
-    """
-    import pm
-
-    termux = _is_termux_environment()
-    if not termux:
-        installed = pm.installed_package("agent-browser")
-        if installed and installed.binary is not None:
-            return str(installed.binary)
+    """Find the typed controller provisioned by the Evident image or operator."""
     usable = agent_browser_runnable if validate else _agent_browser_candidate_present
     for search_path in (None, _merge_browser_path("")):
         if search_path == "":
@@ -80,14 +74,6 @@ def _find_agent_browser(*, validate: bool = True) -> str:
         if candidate and usable(candidate):
             return candidate
     hint = f"agent-browser CLI not found. Install it with: {_browser_install_hint()}"
-    if validate and not termux:
-        try:
-            pm.ensure("agent-browser")
-        except (pm.InstallError, OSError) as exc:
-            raise FileNotFoundError(f"{hint}\n{exc}") from exc
-        installed = pm.installed_package("agent-browser")
-        if installed and installed.binary is not None:
-            return str(installed.binary)
     raise FileNotFoundError(hint)
 
 
