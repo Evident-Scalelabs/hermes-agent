@@ -125,6 +125,15 @@ skipped. Agent Plugins v1 does not define trust, permissions, provenance, or a
 sandbox. Enabling a package grants its instructions and local executable the
 same full-trust posture as other installed Hermes plugins.
 
+In Hermes, a portable `streamable-http` entry may also set `"auth": "oauth"`
+to use the existing [native MCP OAuth flow](../../user-guide/features/mcp.md#oauth-authenticated-http-servers).
+For example: `{"type": "streamable-http", "url": "https://example.com/mcp", "auth": "oauth"}`.
+Omit `auth` to keep the default unauthenticated or configured-header behavior;
+other `auth` values are rejected for that server. The package declares only
+the authentication method: OAuth client configuration and tokens stay with
+the user's native profile flow, outside `mcp.json`. Server-side client
+admission and successful sign-in still need to be verified separately.
+
 A package can ask Hermes to gate one of its MCP servers, the same way a user's
 `trust: untrusted` does in `config.yaml`. Use it for servers whose tools spend
 money, trade, send messages or change accounts, so the user approves each
