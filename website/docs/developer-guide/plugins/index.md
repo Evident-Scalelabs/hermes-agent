@@ -134,6 +134,14 @@ the authentication method: OAuth client configuration and tokens stay with
 the user's native profile flow, outside `mcp.json`. Server-side client
 admission and successful sign-in still need to be verified separately.
 
+For an enabled portable OAuth server, run `hermes mcp login <server-name>` or
+`hermes mcp reauth <server-name>` to authorize explicitly in the active profile.
+The native OAuth flow updates that profile's credentials without copying the
+package server into `config.yaml`. Native entries take precedence on a name
+conflict; disabled packages are not auth targets. CLI list/test, bulk `reauth --all`
+and server modification commands still use native config entries; GUI OAuth for
+plugin-owned servers remains separate work.
+
 A package can ask Hermes to gate one of its MCP servers, the same way a user's
 `trust: untrusted` does in `config.yaml`. Use it for servers whose tools spend
 money, trade, send messages or change accounts, so the user approves each

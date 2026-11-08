@@ -266,6 +266,15 @@ def _lookup_server(
     return None
 
 
+def _lookup_oauth_server(name: str, servers: dict[str, dict]) -> Optional[dict]:
+    """Resolve an explicit auth target without granting config ownership of a plugin server."""
+    if name not in servers:
+        from tools.mcp_tool_config import _load_mcp_config
+
+        servers = _load_mcp_config()
+    return _lookup_server(name, servers)
+
+
 def _remove_mcp_server(name: str) -> bool:
     """Remove a server from config.yaml.  Returns True if it existed."""
     config = load_config()
@@ -971,7 +980,7 @@ def _reauth_oauth_server(name: str, server_config: dict, *, flow: str | None = N
 
 def cmd_mcp_login(args):
     """Run an explicit browser or device authorization for an OAuth-based MCP server."""
-    cfg = _lookup_server(args.name, _get_mcp_servers())
+    cfg = _lookup_oauth_server(args.name, _get_mcp_servers())
     if cfg is not None:
         _reauth_oauth_server(args.name, cfg, flow=getattr(args, "flow", None))
 
@@ -1006,7 +1015,7 @@ def cmd_mcp_reauth(args):
         _error("Specify a server name, or use --all to re-auth every OAuth server.")
         _info("Usage: hermes mcp reauth <name>   |   hermes mcp reauth --all")
         return
-    cfg = _lookup_server(name, servers)
+    cfg = _lookup_oauth_server(name, servers)
     if cfg is not None:
         _reauth_oauth_server(name, cfg)
 
