@@ -50,7 +50,7 @@ _PLUGIN_FIELDS = {"$schema", "name", "version", "description", "author", "homepa
                   "license", "keywords", "extensions"}
 _AUTHOR_FIELDS = {"name", "email", "url"}
 _STDIO_FIELDS = {"type", "command", "args", "env", "cwd"}
-_REMOTE_FIELDS = {"type", "url", "headers"}
+_REMOTE_FIELDS = {"type", "url", "headers", "auth"}
 _PLUGIN_NAME_RE = re.compile(r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
 _SKILL_NAME_RE = re.compile(r"^(?!.*--)[a-z0-9]+(?:-[a-z0-9]+)*$")
 _PLACEHOLDER_RE = re.compile(r"\$\{(PLUGIN_ROOT|PLUGIN_DATA)\}")
@@ -408,6 +408,10 @@ def _translate_remote(config: Mapping[str, Any]) -> dict[str, Any]:
     translated: dict[str, Any] = {"url": url, "strict_redirect_headers": True}
     if config.get("headers"):
         translated["headers"] = dict(config["headers"])
+    if "auth" in config:
+        if config["auth"] != "oauth":
+            raise ValueError("auth must be oauth when provided")
+        translated["auth"] = "oauth"
     return translated
 
 
