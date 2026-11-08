@@ -49,7 +49,7 @@ def probe(monkeypatch, tmp_path):
         home = get_hermes_home()
         seen.append((home, name, cfg))
         asyncio.run(HermesTokenStorage(name).set_tokens(OAuthToken(
-            access_token=f"test-token-{home.name}", token_type="Bearer",
+            access_token=f"test-token-{home.name}-{len(seen)}", token_type="Bearer",
         )))
         return [("read", "Read an example")]
 
@@ -57,32 +57,48 @@ def probe(monkeypatch, tmp_path):
     return seen
 
 
-@pytest.mark.parametrize("command", [mcp_config.cmd_mcp_login, mcp_config.cmd_mcp_reauth])
-def test_named_auth_uses_portable_source_without_writing_config(tmp_path, capsys, probe, command):
-    home = tmp_path / "alpha"
-    root = seed_plugin(home)
-    before = {path: path.read_bytes() for path in (home / "config.yaml", root / "plugin.json", root / "mcp.json")}
-    token = set_hermes_home_override(home)
-    try:
-        command(argparse.Namespace(name="remote", all=False, flow=None))
-        assert HermesTokenStorage("remote").has_cached_tokens()
-    finally:
-        reset_hermes_home_override(token)
+@pytest.mark.parametrize("case", ["login", "reauth", "profile-return"])
+def test_named_auth_keeps_source_and_credentials_profile_scoped_without_config_writes(tmp_path, capsys, probe, case):
+    homes = [tmp_path / "alpha"] + ([tmp_path / "beta"] if case == "profile-return" else [])
+    before = {}
+    for home in homes:
+        root = seed_plugin(home)
+        before.update({path: path.read_bytes() for path in (home / "config.yaml", root / "plugin.json", root / "mcp.json")})
+    sequence = homes + [homes[0]] if case == "profile-return" else homes
+    command = mcp_config.cmd_mcp_reauth if case == "reauth" else mcp_config.cmd_mcp_login
+    expected_tokens = {}
+    for attempt, home in enumerate(sequence, 1):
+        token = set_hermes_home_override(home)
+        try:
+            command(argparse.Namespace(name="remote", all=False, flow=None))
+            assert HermesTokenStorage("remote").has_cached_tokens()
+        finally:
+            reset_hermes_home_override(token)
+        expected_tokens[home] = f"test-token-{home.name}-{attempt}"
+        for owner, expected in expected_tokens.items():
+            stored = json.loads((owner / "mcp-tokens" / "remote.json").read_text(encoding="utf-8"))
+            assert stored["access_token"] == expected
 
     assert [(owner, name, cfg["url"], cfg["auth"], cfg["strict_redirect_headers"])
-            for owner, name, cfg in probe] == [(home, "remote", "https://alpha.example/mcp", "oauth", True)]
+            for owner, name, cfg in probe] == [(home, "remote", f"https://{home.name}.example/mcp", "oauth", True)
+                                               for home in sequence]
     assert "Authenticated" in capsys.readouterr().out
     assert all(path.read_bytes() == contents for path, contents in before.items())
 
 
-@pytest.mark.parametrize("case", ["absent", "disabled", "non-oauth", "native-non-oauth"])
-def test_named_auth_refuses_unavailable_or_non_oauth_sources(tmp_path, capsys, probe, case):
+@pytest.mark.parametrize("case", ["absent", "disabled", "non-oauth", "native-non-oauth", "ownership"])
+def test_named_auth_keeps_refusals_and_config_ownership(tmp_path, capsys, probe, case):
     home = tmp_path / "alpha"
     seed_plugin(home, auth=case != "non-oauth", enabled=case != "disabled",
                 native={"remote": {"url": "https://native.example/mcp"}} if case == "native-non-oauth" else None)
+    before = (home / "config.yaml").read_bytes()
     token = set_hermes_home_override(home)
     try:
-        mcp_config.cmd_mcp_login(argparse.Namespace(name="missing" if case == "absent" else "remote", flow=None))
+        if case == "ownership":
+            mcp_config.cmd_mcp_reauth(argparse.Namespace(name=None, all=True))
+            mcp_config.cmd_mcp_remove(argparse.Namespace(name="remote"))
+        else:
+            mcp_config.cmd_mcp_login(argparse.Namespace(name="missing" if case == "absent" else "remote", flow=None))
     finally:
         reset_hermes_home_override(token)
 
@@ -90,38 +106,4 @@ def test_named_auth_refuses_unavailable_or_non_oauth_sources(tmp_path, capsys, p
     message = "not configured for OAuth" if "oauth" in case else "not found"
     assert message in capsys.readouterr().out
     assert not (home / "mcp-tokens").exists()
-
-
-def test_portable_login_keeps_profile_credentials_separate(tmp_path, probe):
-    homes = [tmp_path / "alpha", tmp_path / "beta"]
-    for home in homes:
-        seed_plugin(home)
-    for home in homes:
-        token = set_hermes_home_override(home)
-        try:
-            mcp_config.cmd_mcp_login(argparse.Namespace(name="remote", flow=None))
-        finally:
-            reset_hermes_home_override(token)
-
-    assert [(home, cfg["url"]) for home, _, cfg in probe] == [
-        (home, f"https://{home.name}.example/mcp") for home in homes
-    ]
-    for home in homes:
-        stored = json.loads((home / "mcp-tokens" / "remote.json").read_text(encoding="utf-8"))
-        assert stored["access_token"] == f"test-token-{home.name}"
-
-
-def test_portable_auth_does_not_expand_bulk_or_remove_ownership(tmp_path, capsys, probe):
-    home = tmp_path / "alpha"
-    seed_plugin(home)
-    before = (home / "config.yaml").read_bytes()
-    token = set_hermes_home_override(home)
-    try:
-        mcp_config.cmd_mcp_reauth(argparse.Namespace(name=None, all=True))
-        mcp_config.cmd_mcp_remove(argparse.Namespace(name="remote"))
-    finally:
-        reset_hermes_home_override(token)
-
-    assert probe == []
-    assert "not found" in capsys.readouterr().out
     assert (home / "config.yaml").read_bytes() == before
