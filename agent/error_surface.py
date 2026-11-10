@@ -28,7 +28,8 @@ LAYER_GATEWAY = "gateway"
 LAYER_DISK = "disk"
 
 # failure_reason → UI layer. Unlisted reasons fall back to LAYER_PROVIDER:
-# every FailoverReason comes from classifying a provider call. Loop-site codes
+# most FailoverReasons come from classifying a provider call. Local resource
+# failures during that call and loop-site codes
 # (agent/turn_failure_copy.py::SITE_FAILURE_CODES) are listed explicitly: the
 # ones that are not provider verdicts map to the gateway layer so the client
 # does not offer "Switch provider"; the ones the model/provider caused
@@ -38,6 +39,7 @@ _REASON_TO_LAYER = {
     "auth": LAYER_AUTH, "auth_permanent": LAYER_AUTH, "billing": LAYER_BILLING, "billing_unverified": LAYER_BILLING,
     "loop_error": LAYER_GATEWAY, "interpreter_shutdown": LAYER_GATEWAY, "session_busy": LAYER_GATEWAY,
     "gateway_connection": LAYER_GATEWAY, "host_error": LAYER_GATEWAY, "workspace_unavailable": LAYER_GATEWAY,
+    "host_resource_exhausted": LAYER_GATEWAY,
     "launch_credentials_unavailable": LAYER_GATEWAY,
     "local_runtime_unavailable": LAYER_ENDPOINT,  # the managed local model server is down
     "truncated": LAYER_PROVIDER, "empty_response": LAYER_PROVIDER, "invalid_response": LAYER_PROVIDER,
@@ -58,6 +60,7 @@ _NON_RETRYABLE_REASONS = {
     "auth", "auth_permanent", "billing", "billing_unverified", "content_policy_blocked",
     "provider_policy_blocked", "data_policy_denied", "model_not_found", "format_error", "ssl_cert_verification",
     "context_overflow", "interpreter_shutdown", "upstream_blocked",
+    "host_resource_exhausted",
 }
 
 # Providers whose base_url is user-supplied rather than a known vendor.
@@ -227,11 +230,13 @@ def build_error_surface_from_exception(
         message = str(exc) or type(exc).__name__
         if _disk_full(exc):
             return _surface(LAYER_DISK, "disk_full", False, provider, model)
+        from agent.error_classifier import classify_api_error, is_host_thread_exhaustion
+
+        if is_host_thread_exhaustion(exc):
+            return _surface(LAYER_GATEWAY, "host_resource_exhausted", False, provider, model)
         api_like = (type(exc).__module__ or "").split(".")[0] in _API_EXC_MODULE_PREFIXES or hasattr(exc, "status_code")
         if not api_like or not isinstance(exc, Exception):
             return _surface(LAYER_GATEWAY, type(exc).__name__, True, provider, model)
-
-        from agent.error_classifier import classify_api_error
 
         classified = classify_api_error(exc, provider=provider, model=model, api_key=api_key)
         synthetic = {"error": classified.message or message, "failure_reason": classified.reason.value}

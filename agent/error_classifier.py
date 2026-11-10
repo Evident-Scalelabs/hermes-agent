@@ -58,6 +58,7 @@ class FailoverReason(enum.Enum):
     invalid_encrypted_content = "invalid_encrypted_content"  # Responses replay blob rejected — strip replay state and retry
     multimodal_tool_content_unsupported = "multimodal_tool_content_unsupported"  # Provider rejected list-type content in tool messages (e.g. Xiaomi MiMo) — downgrade to text and retry
     reasoning_mandatory = "reasoning_mandatory"  # Route rejects reasoning: {enabled: false} — send the disable no more this session and retry
+    host_resource_exhausted = "host_resource_exhausted"  # Local thread budget exhausted — another model cannot fix it
 
     # Provider-specific
     thinking_signature = "thinking_signature"  # Anthropic thinking block sig invalid
@@ -1047,6 +1048,18 @@ def _by_transport(c: _Ctx) -> Optional[Verdict]:
     return _V_TIMEOUT if transport else None
 
 
+def is_host_thread_exhaustion(error: BaseException) -> bool:
+    # CPython raises this locally when pthread creation fails. Do not interpret
+    # a provider's HTTP error body containing the same words as a host failure.
+    return isinstance(error, RuntimeError) and not hasattr(error, "status_code") and str(error).lower() in {
+        "can't start new thread", "cannot start new thread",
+    }
+
+
+def _by_host_resource(c: _Ctx) -> Optional[Verdict]:
+    return _v(_R.host_resource_exhausted, retryable=False) if is_host_thread_exhaustion(c.error) else None
+
+
 def _by_status(c: _Ctx) -> Optional[Verdict]:
     """HTTP status code with message-aware refinement (unlisted 4xx/5xx → generic)."""
     status = c.status_code
@@ -1056,11 +1069,11 @@ def _by_status(c: _Ctx) -> Optional[Verdict]:
     return _STATUS_HANDLERS[status](c) if status in _STATUS_HANDLERS else default
 
 
-# Stage order: plugin hooks → the provider's own profile hook → provider-specific special cases →
+# Stage order: local resource failures → plugin hooks → the provider's own profile hook → provider-specific special cases →
 # HTTP status → MoA shapes → structured error code → message patterns → SSL → disconnect +
 # large session → transport types → unknown (retryable with backoff).
 _STAGES: Sequence[Callable[[_Ctx], Optional[Verdict]]] = (
-    _plugin_verdict, _profile_verdict, _provider_special_cases, _by_status, _moa_special_cases,
+    _by_host_resource, _plugin_verdict, _profile_verdict, _provider_special_cases, _by_status, _moa_special_cases,
     _by_error_code, _by_message, _by_transport,
 )
 
