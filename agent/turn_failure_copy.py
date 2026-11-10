@@ -212,6 +212,11 @@ _EXHAUSTED_FIRST_ATTEMPT_LEADS: dict[str, str] = {
 
 # Terminal copy for a non-retryable provider rejection, keyed by classifier reason.
 _NONRETRYABLE_COPY: dict[str, str] = {
+    FailoverReason.host_resource_exhausted.value: (
+        "The Hermes host could not create another thread, so this turn stopped. "
+        "Execution may already have started. Check the host's process/thread capacity "
+        "before retrying; switching models cannot free that capacity."
+    ),
     FailoverReason.model_not_found.value: (
         "Model '{model}' isn't available on {label}. Pick a different model with /model "
         "(or `hermes model` in a terminal).{prefix_hint}"
@@ -483,7 +488,8 @@ def nonretryable_copy(
     )
     body = template.format(label=label, model=model, home=display_hermes_home(), prefix_hint=prefix_hint,
                            relogin=oauth_relogin_command(provider))
-    return f"{body}\n\nProvider said: {summary}"
+    detail_label = "Details" if classified.reason == FailoverReason.host_resource_exhausted else "Provider said"
+    return f"{body}\n\n{detail_label}: {summary}"
 
 
 def content_policy_copy(*, label: str, summary: str) -> str:
