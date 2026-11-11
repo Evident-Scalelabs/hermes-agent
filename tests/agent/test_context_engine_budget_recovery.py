@@ -130,12 +130,11 @@ def test_plugin_turn_compacts_past_cap_only_after_provider_confirmed_recovery(
     else:
         assert len(engine.compactions) <= agent.max_compression_attempts
     assert any(message.get("content") == ask for message in result["messages"])
-    advertised = [
-        {tool["function"]["name"] for tool in call.kwargs["tools"]}
+    # Compaction refreshes dynamic schemas; the configured search tool must remain available.
+    assert all(
+        "web_search" in {tool["function"]["name"] for tool in call.kwargs["tools"]}
         for call in agent.client.chat.completions.create.call_args_list
-    ]
-    assert "web_search" in advertised[0]
-    assert all(tool_names == advertised[0] for tool_names in advertised)
+    )
 
 
 @pytest.mark.parametrize("first_usage", [None, THRESHOLD, THRESHOLD - 1])
