@@ -25,10 +25,13 @@ _RP = "browser.use_real_profile is on, but "
 def _terminate_real_profile_chrome() -> None:
     """Terminate real-browser processes launched for real-profile sessions (idempotent, atexit-safe);
     agent-browser only ATTACHED to them, so its own session cleanup never kills them."""
+    from hermes_cli.process_identity import stop_owned_group_survivors
     from tools.browser_lightpanda import _terminate
     _bt = _origin()
     while _bt._real_profile_chrome_procs:
-        _terminate(_bt._real_profile_chrome_procs.pop(), what="real-profile chrome")
+        proc = _bt._real_profile_chrome_procs.pop()
+        _terminate(proc, what="real-profile chrome")
+        stop_owned_group_survivors(proc.pid, proc=proc)
 
 
 def _cdp_http_ready(http_cdp: str) -> bool:
@@ -196,6 +199,7 @@ def _launch_real_profile_chrome(real_binary: str, copy_dir: str) -> tuple[Option
     headless shares the profile's cookie store (legacy --headless does not). browser.headed /
     AGENT_BROWSER_HEADED opts into a window, except on a display-less Linux host (launch would die).
     """
+    from hermes_cli.process_identity import spawn_owned
     _bt = _origin()
     try:
         os.unlink(os.path.join(copy_dir, "DevToolsActivePort"))  # stale port confuses reuse probes
@@ -208,8 +212,8 @@ def _launch_real_profile_chrome(real_binary: str, copy_dir: str) -> tuple[Option
     if not (_cloud._is_headed_mode() and (_has_display or not sys.platform.startswith("linux"))):
         chrome_argv.append("--headless=new")
     try:
-        chrome_proc = subprocess.Popen(chrome_argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                       stdin=subprocess.DEVNULL, start_new_session=True, env=browser_env)
+        chrome_proc = spawn_owned(chrome_argv, purpose="real-profile-chrome", stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, env=browser_env)
     except (subprocess.SubprocessError, OSError) as e:
         return None, f"{_RP}the launch failed: {e}"
     _bt._real_profile_chrome_procs.append(chrome_proc)
