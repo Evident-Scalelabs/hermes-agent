@@ -4138,11 +4138,11 @@ def compress_context(
     effect_messages_before = _snapshot_compression_effect_input(messages_before_compression, verbatim_tail)
     _commit_fence_entered = False
     try:
-        # Capture the verdict before rotation callbacks reset compressor fields on rebind.
-        _compression_made_progress, _compression_used_fallback, _compression_feasibility_skip = (
-            bool(getattr(agent.context_compressor, name, False))
-            for name in ("_last_compression_made_progress", "_last_summary_fallback_used", "_last_feasibility_skip")
-        )
+        # Capture before rebind; plugins use the candidate/commit checks, not a built-in private verdict.
+        _compression_made_progress = bool(getattr(
+            agent.context_compressor, "_last_compression_made_progress", True))
+        _compression_used_fallback = bool(getattr(agent.context_compressor, "_last_summary_fallback_used", False))
+        _compression_feasibility_skip = bool(getattr(agent.context_compressor, "_last_feasibility_skip", False))
         if _candidate_rejected(
             agent, compressed, messages, messages_before_compression, attempt=attempt,
         ):

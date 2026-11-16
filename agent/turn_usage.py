@@ -89,6 +89,8 @@ def record_response_usage(
             # pending verdict so later readings aren't charged to it and
             # preflight deferral isn't latched indefinitely.
             compressor.update_from_response({})
+        compressor._verify_compaction_cleared_threshold = False
+        compressor.awaiting_real_usage_after_compression = False
         _note_usage_less = getattr(compressor, "note_usage_less_response", None)
         if callable(_note_usage_less):
             _note_usage_less()
@@ -131,6 +133,9 @@ def record_response_usage(
         getattr(compressor, "_verify_compaction_cleared_threshold", False)
     )
     compressor.update_from_response(usage_dict)
+    # These host-armed latches must also be consumed by engines without built-in bookkeeping.
+    compressor._verify_compaction_cleared_threshold = False
+    compressor.awaiting_real_usage_after_compression = False
     # Usage-anchored accounting: snapshot exact provider usage against the durable
     # transcript (main-loop ONLY; MoA uses pre-fold aggregator usage). The display meter
     # anchors on the turn's FIRST response: later same-turn responses inflate
