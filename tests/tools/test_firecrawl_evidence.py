@@ -90,9 +90,11 @@ def test_typed_sdk_document_keeps_fetched_url_and_requested_url_distinct(with_fi
          patch.object(provider, 'check_website_access', return_value=None), \
          patch.object(provider, 'is_safe_url', return_value=True) as safe_url:
         result = asyncio.run(provider._scrape_one(requested, ['markdown', 'html'], None))
-    safe_url.assert_called_once_with(final)
+    # Only metadata.url establishes a post-redirect URL; source_url is the request receipt.
+    expected = final if with_final_url else requested
+    safe_url.assert_called_once_with(expected)
     projected = _trim_results([result])[0]
-    assert projected['url'] == final and projected['requestedUrl'] == requested
+    assert projected['url'] == expected and projected['requestedUrl'] == requested
     assert projected['metadata']['source_url'] == metadata['sourceURL']
     assert projected['metadata']['status_code'] == 200
     assert projected['metadata']['cached_at'] == '2026-10-14T00:00:00Z'

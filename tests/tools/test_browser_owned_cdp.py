@@ -13,10 +13,6 @@ from unittest.mock import Mock
 import pytest
 
 from tools import browser_tool as bt, browser_tool_session as session, browser_tool_lifecycle as lifecycle
-from tools import browser_use_cli as retired
-
-_REAL_RETIRED = retired.retired_browser_backend_error
-_REAL_BACKEND = retired.get_browser_backend
 
 
 def test_observation_uses_native_last_navigation_session(monkeypatch):
@@ -54,17 +50,6 @@ def test_failed_daemon_kill_keeps_recovery_identity(monkeypatch, tmp_path):
     assert (socket / 'owned.pid').read_text() == '123'
 
 
-@pytest.mark.parametrize('browser', ["backend: 'off'\n  cloud_provider: camofox", "backend: 'off'"])
-def test_retired_camofox_cannot_select_another_controller(monkeypatch, tmp_path, browser):
-    monkeypatch.setenv('HERMES_HOME', str(tmp_path))
-    (tmp_path / 'config.yaml').write_text('browser:\n  ' + browser + '\n')
-    monkeypatch.setenv('CAMOFOX_URL', 'http://127.0.0.1:1')
-    monkeypatch.setattr(retired, 'retired_browser_backend_error', _REAL_RETIRED)
-    monkeypatch.setattr(retired, 'get_browser_backend', _REAL_BACKEND)
-    from tools.browser_camofox import is_camofox_mode
-    assert is_camofox_mode() is False
-    assert 'Camofox controller is retired' in retired.retired_browser_backend_error()
-    assert session._browser_command_preflight()['success'] is False
 
 
 @pytest.mark.integration

@@ -2899,12 +2899,16 @@ class TestNewEndpoints:
         assert by_name["ElevenLabs"]["status"] == "needs_keys"
 
 
-    def test_retired_managed_browser_provider_is_rejected(self, monkeypatch):
-        """A stale GUI cannot reactivate the retired Browser Use cloud controller."""
-        from hermes_cli.config import load_config
-        from hermes_cli.nous_account import NousPortalAccountInfo
+    def test_select_managed_nous_provider_reports_needs_nous_auth(self, monkeypatch):
+        """Selecting a managed Nous row while logged out flags needs_nous_auth.
 
-        before = load_config()["browser"].copy()
+        Regression: the GUI PUT wrote browser.cloud_provider + use_gateway
+        but skipped the Portal entitlement handshake the CLI runs inline
+        (ensure_nous_portal_access) — so the row never activated and nothing
+        told the user to sign in. The endpoint now reports the entitlement
+        gap so the client can drive the existing Nous OAuth flow.
+        """
+        from hermes_cli.nous_account import NousPortalAccountInfo
 
         monkeypatch.setattr(
             "hermes_cli.nous_subscription.get_nous_portal_account_info",
@@ -2917,9 +2921,18 @@ class TestNewEndpoints:
             "/api/tools/toolsets/browser/provider",
             json={"provider": "Nous Subscription (Browser Use cloud)"},
         )
-        assert resp.status_code == 400
-        assert "Unknown provider" in resp.json()["detail"]
-        assert load_config()["browser"] == before
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["needs_nous_auth"] is True
+        assert data["feature"] == "browser"
+        # The selection is still persisted — activation is what's gated.
+        # Managed rows store the single 'nous' provider string (the runtime
+        # maps it to the Browser Use cloud through the Nous Tool Gateway).
+        from hermes_cli.config import load_config
+        cfg = load_config()
+        assert cfg["browser"]["cloud_provider"] == "nous"
+        assert "use_gateway" not in cfg["browser"]
 
 
     # -- Web capability split (search vs extract backends) ------------------

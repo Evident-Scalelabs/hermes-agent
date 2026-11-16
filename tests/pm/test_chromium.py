@@ -13,7 +13,7 @@ from scripts.bundles.native import _bundle_package_names
 
 def test_browser_default_and_bundle_ship_full_chromium_only():
     closure = {package.name for package in walk(["chromium"])}
-    bundled = set(_bundle_package_names())
+    bundled = set(_bundle_package_names("linux-arm64"))
     assert "chromium" in set(default_package_names()) & bundled
     assert "chromium-headless-shell" not in closure | bundled
 
