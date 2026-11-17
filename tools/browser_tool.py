@@ -1233,40 +1233,6 @@ _LP_VISION_FALLBACK_REASON = "Lightpanda has no graphical renderer for screensho
 from tools import browser_tool_vision as _vision
 
 
-def _capture_vision_screenshot(effective_task_id: str, annotate: bool, screenshot_path: Path, lp_prerouted: bool, full_page: bool = True):
-    """Take (or adopt the pre-routed) screenshot; returns ``(result, path, error_json_or_None)``."""
-    if lp_prerouted and screenshot_path.exists():
-        result = _lp._annotate_lightpanda_fallback(
-            {"success": True, "data": {"path": str(screenshot_path)}}, _LP_VISION_FALLBACK_REASON)
-    else:
-        # In the sandbox the CLI writes to ITS filesystem; the file is fetched back below.
-        remote_path = _session.sandbox_screenshot_path(screenshot_path)
-        screenshot_args = (["--annotate"] if annotate else []) + (["--full"] if full_page else []) + [remote_path or str(screenshot_path)]
-        # A failed Lightpanda pre-route forces Chrome so _run_browser_command
-        # doesn't trigger a redundant LP fallback.
-        result = _session._run_browser_command(effective_task_id, "screenshot", screenshot_args,
-                                      _engine_override="auto" if lp_prerouted else None)
-        if remote_path and result.get("success"):
-            try:
-                _session.fetch_sandbox_file(str((result.get("data") or {}).get("path") or remote_path), screenshot_path)
-                result.setdefault("data", {})["path"] = str(screenshot_path)
-            except Exception as exc:
-                logger.warning("could not fetch the sandbox screenshot %s: %s", remote_path, exc)
-    if not result.get("success"):
-        return result, screenshot_path, _json_with_fallback(_err(
-            f"Failed to take screenshot ({_vision._vision_mode_label()} mode): {result.get('error', 'Unknown error')}"
-        ), result)
-    if result.get("data", {}).get("path"):
-        screenshot_path = Path(result["data"]["path"])
-    if not screenshot_path.exists():
-        return result, screenshot_path, _dumps(_err(
-            f"Screenshot file was not created at {screenshot_path} ({_vision._vision_mode_label()} mode). "
-            f"This may indicate a socket path issue (macOS /var/folders/), "
-            f"a missing Chromium install ('agent-browser install'), "
-            f"or a stale daemon process."
-        ))
-    return result, screenshot_path, None
-
 
 def browser_vision(question: str, annotate: bool = False, task_id: Optional[str] = None, full_page: bool = True) -> str | dict[str, Any]:
     """Screenshot the current page for visual inspection. Native-vision models get the image
@@ -1295,7 +1261,7 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
     try:
         screenshots_dir.mkdir(parents=True, exist_ok=True)
         _lifecycle._cleanup_old_screenshots(screenshots_dir, max_age_hours=24)
-        result, screenshot_path, error = _capture_vision_screenshot(
+        result, screenshot_path, error = _vision.capture_vision_screenshot(
             effective_task_id, annotate, screenshot_path, _lp_prerouted, full_page=full_page)
         if error is not None:
             return error
@@ -1307,7 +1273,9 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
 
         analysis = _vision._analyze_screenshot_with_aux_llm(screenshot_path, question)
         response_data = {"success": True, "analysis": analysis or "Vision analysis returned no content.",
-                         "screenshot_path": str(screenshot_path)}
+                         "screenshot_path": str(screenshot_path),
+                         **({"screenshot_scale_factor": result["data"]["screenshot_scale_factor"]}
+                            if "screenshot_scale_factor" in result.get("data", {}) else {})}
         _lp._copy_fallback_warning(response_data, result)
         if annotate and result.get("data", {}).get("annotations"):
             response_data["annotations"] = result["data"]["annotations"]

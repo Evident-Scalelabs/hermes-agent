@@ -15,6 +15,9 @@ import time
 
 import pytest
 
+PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC')
+
+
 from tools.browser_supervisor import _SupervisorRegistry
 from tools.browser_supervisor_capture import CapturedCDPInvalid
 
@@ -66,8 +69,10 @@ class _FakeCDP:
                                           for target in ("T1", "T2")]}
             elif method == "Target.attachToTarget":
                 result = {"sessionId": f"S{conn}"}
+            elif method == "Page.getLayoutMetrics":
+                result = {"cssVisualViewport": {"clientWidth": 1, "clientHeight": 1}}
             elif method == "Page.captureScreenshot":
-                result = {"data": base64.b64encode(b"native-image").decode()}
+                result = {"data": base64.b64encode(PNG).decode()}
             await ws.send(json.dumps({"id": msg["id"], "result": result}))
 
     def drop_current(self) -> None:
@@ -196,7 +201,7 @@ def test_optional_screenshot_timeout_keeps_exact_session_and_ignores_late_image(
     assert not path.exists()
     cdp.hang_capture = False
     assert capture_browser_screenshot("fixture", tmp_path / "next.png")["success"]
-    assert (tmp_path / "next.png").read_bytes() == b"native-image"
+    assert (tmp_path / "next.png").read_bytes() == PNG
 
 
 def test_optional_screenshot_never_creates_browser_or_captures_missing_target(tmp_path, monkeypatch, cdp, registry):
