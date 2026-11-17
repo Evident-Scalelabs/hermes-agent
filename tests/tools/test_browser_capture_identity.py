@@ -73,7 +73,11 @@ def test_observer_capture_is_viewport_only_and_keeps_the_native_task(native_sess
             calls.append((method, params, session_id))
             assert timeout > 0
             if method == "Page.getLayoutMetrics":
-                return {"result": {"cssVisualViewport": {"clientWidth": 1}}}
+                return {"result": {"cssVisualViewport": {
+                    "pageX": 12, "pageY": 80, "clientWidth": 1, "clientHeight": 2, "scale": 0.5,
+                }}}
+            if not params.get("clip"):
+                raise TimeoutError("Implicit viewport copy waits on the compositor")
             return {"result": {"data": base64.b64encode(PNG).decode()}}
     supervisor = SimpleNamespace(capture_only=True)
     registry = SimpleNamespace(get=lambda *_a, **_k: supervisor,
@@ -83,7 +87,8 @@ def test_observer_capture_is_viewport_only_and_keeps_the_native_task(native_sess
     path = tmp_path / "mobile.png"
     assert capture_browser_screenshot("fixture", path)["success"]
     assert calls == [("Page.getLayoutMetrics", {}, "mobile-page"), ("Page.captureScreenshot", {
-        "format": "png", "fromSurface": True, "captureBeyondViewport": False,
+        "format": "png", "fromSurface": True, "captureBeyondViewport": True,
+        "clip": {"x": 12, "y": 80, "width": 1, "height": 2, "scale": 0.5},
     }, "mobile-page")]
     assert path.read_bytes() == PNG
     assert browser_tool._active_sessions["fixture"] is session and not state["forbidden_calls"]
@@ -128,7 +133,9 @@ def test_native_identity_change_during_capture_discards_image(native_session, mo
         def call(self, method, params, *, session_id, timeout):
             assert session_id == self.page_session_id and timeout > 0
             if method == "Page.getLayoutMetrics":
-                return {"result": {"cssVisualViewport": {"clientWidth": 1}}}
+                return {"result": {"cssVisualViewport": {
+                    "pageX": 0, "pageY": 0, "clientWidth": 1, "clientHeight": 1, "scale": 1,
+                }}}
             assert method == "Page.captureScreenshot"
             if change == "binding":
                 binding.write_text(json.dumps({"targetId": "T2", "pinned": False}))
