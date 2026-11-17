@@ -77,3 +77,22 @@ def test_the_launch_home_keeps_the_launch_rules(homes):
         else:
             assert (get_hermes_home_override(), get_terminal_scope()) == (None, None)
     assert (get_hermes_home_override(), current_secret_scope(), get_terminal_scope()) == (None, None, None)
+
+
+def test_config_scope_keeps_the_pinned_launch_identity_when_the_host_mirrors_a_profile(homes, monkeypatch):
+    import hermes_constants
+
+    launch, work, _ = homes
+    monkeypatch.setattr(hermes_constants, "_PINNED_PROCESS_HERMES_HOME", str(launch))
+    policy.activate_multi_profile_hosting()
+    monkeypatch.setenv("HERMES_HOME", str(work))
+    with profile_config_scope(work):
+        assert get_hermes_home() == work
+        assert current_secret_scope_home() == str(work)
+        assert get_secret("LAUNCH_ENV_ONLY") is None
+        with profile_config_scope(launch):
+            assert get_hermes_home() == launch
+            assert get_secret("LAUNCH_ENV_ONLY") == "env-only"
+            assert (get_terminal_scope() or {}).get("TERMINAL_ENV") == "local"
+        assert get_hermes_home() == work
+        assert get_secret("LAUNCH_ENV_ONLY") is None

@@ -68,6 +68,26 @@ def test_truncated_html_keeps_complete_artifact_and_matching_hash():
     assert projected['truncated'] is False
 
 
+def test_an_html_cache_replacement_does_not_discard_paid_pages(tmp_path, monkeypatch, caplog):
+    from tools import web_tools_truncate as truncate
+
+    def store_then_replace(url, content):
+        path = tmp_path / 'page.md'
+        path.write_text(content, encoding='utf-8')
+        path.unlink()  # A concurrent same-URL cache writer unlinks before exclusive creation.
+        return str(path)
+
+    monkeypatch.setattr(truncate, '_store_full_text', store_then_replace)
+    pages = [{'url': 'https://example.com/offer', 'content': 'Paid evidence', 'html': '<p>Disclosure</p>'},
+             {'url': 'https://example.com/other', 'content': 'Other paid evidence'}]
+    _truncate_results(pages, 2000, {'pages_truncated': 0, 'truncation_metrics': []})
+    projected = _trim_results(pages)
+    assert [page['content'] for page in projected] == ['Paid evidence', 'Other paid evidence']
+    assert projected[0]['html'] == '<p>Disclosure</p>'
+    assert 'htmlArtifact' not in projected[0]
+    assert 'Stored HTML unavailable' in caplog.text
+
+
 @pytest.mark.parametrize('with_final_url', [True, False])
 def test_typed_sdk_document_keeps_fetched_url_and_requested_url_distinct(with_final_url):
     pytest.importorskip('firecrawl')

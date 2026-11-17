@@ -244,11 +244,11 @@ def profile_config_scope(home: str | Path, *, launch_home: str | Path | None = N
     secondary profiles bind their own terminal policy. Every branch restores the enclosing scope.
     """
     from agent.secret_scope import build_profile_secret_scope, is_multiplex_active
-    from hermes_constants import get_process_hermes_home
+    from hermes_constants import get_routing_process_hermes_home
     from tui_gateway.launch_profile_policy import launch_secret_scope, launch_terminal_env
 
     home = Path(home)
-    launch = Path(launch_home if launch_home is not None else get_process_hermes_home())
+    launch = Path(launch_home if launch_home is not None else get_routing_process_hermes_home())
     scope = scope_for_profile(home)
     if home.resolve() == launch.resolve():
         secrets = launch_secret_scope(launch)
