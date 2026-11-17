@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import base64
 import json
+import math
+import struct
 import time
 from pathlib import Path
 from typing import Any
@@ -89,9 +91,11 @@ def capture_browser_screenshot(task_id: str, path: Path, *, timeout: float = 10.
         if SUPERVISOR_REGISTRY.get(key, include_capture_only=True) is not supervisor:
             return {"success": False, "error": "Native capture connection replaced during attachment"}
         def screenshot() -> dict[str, Any]:
-            reply = channel.call("Page.captureScreenshot", {"format": "png", "fromSurface": True},
+            viewport = channel.call("Page.getLayoutMetrics", {},
+                session_id=channel.page_session_id, timeout=remaining())["result"]["cssVisualViewport"]
+            reply = channel.call("Page.captureScreenshot", {"format": "png", "fromSurface": True, "captureBeyondViewport": False},
                 session_id=channel.page_session_id, timeout=remaining())
-            return {"success": True, "image": reply["result"]["data"]}
+            return {"success": True, "image": reply["result"]["data"], "css_width": viewport["clientWidth"]}
         result = sessions.run_fenced(existing, screenshot)
         if not result.get("success"):
             return result
@@ -102,11 +106,17 @@ def capture_browser_screenshot(task_id: str, path: Path, *, timeout: float = 10.
                     or _existing_capture_target(existing)[2] != identity):
                 return {"success": False, "error": "Native browser session changed during capture"}
             remaining()
-            path.write_bytes(base64.b64decode(result["image"], validate=True))
-        return {"success": True, "data": {"path": str(path)}}
+            pixels = base64.b64decode(result["image"], validate=True)
+            if not pixels.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise ValueError("Native capture is not PNG")
+            width = struct.unpack(">I", pixels[16:20])[0]
+            if width <= 0 or not isinstance(result["css_width"], (int, float)) or not math.isfinite(result["css_width"]) or result["css_width"] <= 0:
+                raise ValueError("Native capture dimensions unavailable")
+            path.write_bytes(pixels)
+        return {"success": True, "data": {"path": str(path), "screenshot_scale_factor": width / result["css_width"]}}
     except TimeoutError:
         return {"success": False, "error": "Native screenshot capture timed out", "code": "capture_timeout"}
-    except (RuntimeError, OSError, ValueError, KeyError, ProcessError) as exc:
+    except (RuntimeError, OSError, ValueError, KeyError, struct.error, ProcessError) as exc:
         return {"success": False, "error": str(exc)}
     finally:
         if supervisor is not None and supervisor.capture_only:
