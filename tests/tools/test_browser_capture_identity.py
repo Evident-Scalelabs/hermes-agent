@@ -76,8 +76,8 @@ def test_observer_capture_is_viewport_only_and_keeps_the_native_task(native_sess
                 return {"result": {"cssVisualViewport": {
                     "pageX": 12, "pageY": 80, "clientWidth": 1, "clientHeight": 2, "scale": 0.5,
                 }}}
-            if not params.get("clip"):
-                raise TimeoutError("Implicit viewport copy waits on the compositor")
+            if params.get("fromSurface") or params.get("clip"):
+                raise TimeoutError("Surface copy can stall; clipped copy resets mobile emulation")
             return {"result": {"data": base64.b64encode(PNG).decode()}}
     supervisor = SimpleNamespace(capture_only=True)
     registry = SimpleNamespace(get=lambda *_a, **_k: supervisor,
@@ -87,8 +87,7 @@ def test_observer_capture_is_viewport_only_and_keeps_the_native_task(native_sess
     path = tmp_path / "mobile.png"
     assert capture_browser_screenshot("fixture", path)["success"]
     assert calls == [("Page.getLayoutMetrics", {}, "mobile-page"), ("Page.captureScreenshot", {
-        "format": "png", "fromSurface": True, "captureBeyondViewport": True,
-        "clip": {"x": 12, "y": 80, "width": 1, "height": 2, "scale": 0.5},
+        "format": "png", "fromSurface": False, "captureBeyondViewport": False,
     }, "mobile-page")]
     assert path.read_bytes() == PNG
     assert browser_tool._active_sessions["fixture"] is session and not state["forbidden_calls"]
