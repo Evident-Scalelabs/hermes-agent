@@ -93,13 +93,10 @@ def capture_browser_screenshot(task_id: str, path: Path, *, timeout: float = 10.
         def screenshot() -> dict[str, Any]:
             viewport = channel.call("Page.getLayoutMetrics", {},
                 session_id=channel.page_session_id, timeout=remaining())["result"]["cssVisualViewport"]
-            # An explicit viewport clip avoids Chrome's stalled surface-copy path
-            # after navigation without capturing the full page or changing emulation.
+            # View capture avoids stalled surface copies and Chrome's clip-induced
+            # emulation reset when a second CDP session observes a mobile page.
             reply = channel.call("Page.captureScreenshot", {
-                "format": "png", "fromSurface": True, "captureBeyondViewport": True,
-                "clip": {"x": viewport["pageX"], "y": viewport["pageY"],
-                         "width": viewport["clientWidth"], "height": viewport["clientHeight"],
-                         "scale": viewport["scale"]},
+                "format": "png", "fromSurface": False, "captureBeyondViewport": False,
             },
                 session_id=channel.page_session_id, timeout=remaining())
             return {"success": True, "image": reply["result"]["data"], "css_width": viewport["clientWidth"]}
