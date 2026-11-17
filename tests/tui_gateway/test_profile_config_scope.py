@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from agent.runtime_scope import profile_config_scope
 from agent.secret_scope import current_secret_scope, current_secret_scope_home, get_secret, set_multiplex_active
 from hermes_constants import get_hermes_home, get_hermes_home_override
 from tools.terminal_scope import get_terminal_scope
@@ -38,7 +39,7 @@ def _secrets() -> dict:
 
 def test_a_secondary_home_gets_only_its_own_files(homes):
     _, work, _ = homes
-    with policy.profile_config_scope(work):
+    with profile_config_scope(work):
         assert get_hermes_home() == work
         assert current_secret_scope_home() == str(work)
         assert _secrets() == {"LAUNCH_FILE_KEY": None, "LAUNCH_ENV_ONLY": None, "WORK_KEY": "work", "SHARED_KEY": "work"}
@@ -48,18 +49,24 @@ def test_a_secondary_home_gets_only_its_own_files(homes):
 
 def test_the_launch_home_inside_a_secondary_scope_is_the_launch_home(homes):
     launch, work, _ = homes
-    with policy.profile_config_scope(work), policy.profile_config_scope(launch):
-        assert get_hermes_home() == launch
-        assert current_secret_scope_home() is None
-        assert _secrets() == {"LAUNCH_FILE_KEY": "launch-file", "LAUNCH_ENV_ONLY": "env-only", "WORK_KEY": None,
-                              "SHARED_KEY": "launch"}
-        assert (get_terminal_scope() or {}).get("TERMINAL_ENV") != "docker"
+    with profile_config_scope(work):
+        from hermes_scope import current_scope
+        outer = (get_hermes_home(), current_secret_scope_home(), _secrets(), get_terminal_scope())
+        with profile_config_scope(launch):
+            assert Path(current_scope().agent) == launch
+            assert get_hermes_home() == launch
+            assert current_secret_scope_home() is None
+            assert _secrets() == {"LAUNCH_FILE_KEY": "launch-file", "LAUNCH_ENV_ONLY": "env-only", "WORK_KEY": None,
+                                  "SHARED_KEY": "launch"}
+            assert (get_terminal_scope() or {}).get("TERMINAL_ENV") != "docker"
+        assert Path(current_scope().agent) == work
+        assert (get_hermes_home(), current_secret_scope_home(), _secrets(), get_terminal_scope()) == outer
     assert (get_hermes_home_override(), current_secret_scope(), get_terminal_scope()) == (None, None, None)
 
 
 def test_the_launch_home_keeps_the_launch_rules(homes):
     launch, _, multiplex = homes
-    with policy.profile_config_scope(launch):
+    with profile_config_scope(launch):
         assert current_secret_scope() is not None
         assert current_secret_scope_home() is None
         assert _secrets() == {"LAUNCH_FILE_KEY": "launch-file", "LAUNCH_ENV_ONLY": "env-only", "WORK_KEY": None,

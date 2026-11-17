@@ -60,7 +60,7 @@ def _best_effort(fn) -> bool:
 
 
 def _hermes_home_scope(path):
-    from tui_gateway.launch_profile_policy import profile_config_scope
+    from agent.runtime_scope import profile_config_scope
     return profile_config_scope(path, launch_home=_launch_home())
 
 

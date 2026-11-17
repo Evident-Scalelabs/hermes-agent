@@ -5,6 +5,7 @@ auto-approve deleting, moving, truncating, or SQL-wiping them. Reads and copies 
 """
 
 import time
+from pathlib import Path
 
 import pytest
 
@@ -13,7 +14,8 @@ from tools.approval_detection import detect_dangerous_command
 
 @pytest.fixture
 def home(monkeypatch, tmp_path):
-    path = tmp_path / "data"
+    # These string-only probes isolate the Hermes floor from macOS /private/var protection.
+    path = Path(tmp_path.anchor) / "hermes-approval-fixtures" / tmp_path.name / "data"
     monkeypatch.setenv("HERMES_HOME", str(path))
     return str(path)
 

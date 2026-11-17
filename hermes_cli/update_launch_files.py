@@ -29,7 +29,7 @@ def refresh_launch_files() -> None:
     from hermes_cli.config_backend import ConfigBackendUnavailable
     from hermes_cli.update_fleet_scope import update_scope_homes
     from hermes_cli.update_receipt import _profile_homes, record_followup
-    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+    from agent.runtime_scope import profile_config_scope
 
     try:
         refreshers = _refreshers()
@@ -40,14 +40,12 @@ def refresh_launch_files() -> None:
         return
     for profile, home in homes:
         for kind, refresh in refreshers:
-            token = set_hermes_home_override(home)
             try:
-                if _owned_by_this_checkout(kind):
-                    refresh()
+                with profile_config_scope(home):
+                    if _owned_by_this_checkout(kind):
+                        refresh()
             except (Exception, ConfigBackendUnavailable) as exc:  # health: allow BLE001 -- one file never blocks the others
                 record_followup(FOLLOWUP_STEP, f"{kind} for profile {profile}: {exc}", retry=_RETRY)
-            finally:
-                reset_hermes_home_override(token)
     if any(kind == "systemd user unit" for kind, _ in refreshers) and os.geteuid() == 0:  # windows-footgun: ok — systemd hosts only
         try:
             _refresh_systemd_system_unit()

@@ -1450,6 +1450,7 @@ def _start_server_runtime(
     until the ready sentinel is written so its SDK import can't hold the GIL
     against the pre-bind path.
     """
+    logger = _log
     from hermes_cli.update_proxy_env import restore_user_proxy_env
     restore_user_proxy_env()  # a backend an update replayed keeps the user's proxy env, not the update's
     _apply_ssh_session_token(ssh_session_token or "")
@@ -1468,7 +1469,7 @@ def _start_server_runtime(
 
         start_nous_auth_keepalive()
     except Exception as exc:
-        _log.debug("Nous auth keepalive did not start: %s", exc)
+        logger.exception("Nous auth keepalive did not start: %s", exc)
 
     _configure_auth_gate(host, allow_public, ssh_session_token, ssh_owner_nonce)
 
@@ -1493,7 +1494,7 @@ def _start_server_runtime(
 
         install_exit_flush_signal_handlers()
     except Exception as exc:
-        _log.debug("exit-flush signal handlers not installed: %s", exc)
+        logger.exception("exit-flush signal handlers not installed: %s", exc)
 
     # #93608: uvicorn's bind_socket() would exit 1 with a bare ERROR line,
     # indistinguishable from "backend broken". Probe first so a conflict
@@ -1517,7 +1518,7 @@ def _start_server_runtime(
 
         activate_multi_profile_hosting_eagerly()
     except Exception:
-        _log.warning("eager multi-profile activation failed", exc_info=True)
+        logger.exception("eager multi-profile activation failed")
 
     async def _serve():
         # startup split from main_loop so the bound (ephemeral) port is readable.

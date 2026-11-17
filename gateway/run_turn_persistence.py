@@ -292,7 +292,7 @@ class GatewayTurnPersistenceMixin:
                 served_model=agent_result.get("served_model"),
             )
         except Exception as _footer_err:
-            logger.debug("runtime_footer build failed: %s", _footer_err)
+            logger.exception("runtime_footer build failed: %s", _footer_err)
             return ""
 
     async def _hmwa_post_turn_hooks(self, hook_ctx, agent_result, response):

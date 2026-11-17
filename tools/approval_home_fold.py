@@ -7,10 +7,13 @@ rewritten into those forms first.
 """
 
 import functools
+import logging
 import os
 import re
 
 from hermes_platform.host import facts
+
+logger = logging.getLogger(__name__)
 
 
 # Shell metacharacters, quotes, and whitespace that terminate a path token.
@@ -128,6 +131,7 @@ def _rewrite_resolved_hermes_home(command: str) -> str:
         home = get_hermes_home().expanduser()
         paths = _home_spellings([str(home), str(home.resolve(strict=False))], command)
     except Exception:
+        logger.exception("Could not resolve the Hermes home for approval path normalization")
         return command
     command = _fold_home_prefixes(command, paths, "~/.hermes")
     # The prefix fold needs a child tail; fold the bare home word too (`mv /opt/data /tmp/x`) so the

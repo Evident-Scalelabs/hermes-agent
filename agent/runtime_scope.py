@@ -32,7 +32,7 @@ from hermes_scope import (
 
 __all__ = [
     "bind_profile_scope", "bind_state", "bind_terminal_policy", "bind_turn", "claim_fence", "legacy_switch",
-    "scope_for_profile",
+    "profile_config_scope", "scope_for_profile",
 ]
 
 
@@ -234,3 +234,29 @@ def bind_terminal_policy(policy: Mapping[str, str], *, profile_home: str | Path 
     with another profile's backend. To run under another profile's policy, bind that profile."""
     from tools.terminal_scope import set_terminal_scope
     return set_terminal_scope(dict(policy), profile_home=profile_home)
+
+
+@contextmanager
+def profile_config_scope(home: str | Path, *, launch_home: str | Path | None = None) -> Iterator[None]:
+    """Bind configuration reads/writes without hydrating secrets through the config being edited.
+
+    A single-profile launch keeps its ambient home and terminal rules; multiplexed launch and
+    secondary profiles bind their own terminal policy. Every branch restores the enclosing scope.
+    """
+    from agent.secret_scope import build_profile_secret_scope, is_multiplex_active
+    from hermes_constants import get_process_hermes_home
+    from tui_gateway.launch_profile_policy import launch_secret_scope, launch_terminal_env
+
+    home = Path(home)
+    launch = Path(launch_home if launch_home is not None else get_process_hermes_home())
+    scope = scope_for_profile(home)
+    if home.resolve() == launch.resolve():
+        secrets = launch_secret_scope(launch)
+        if is_multiplex_active():
+            token = bind_state(scope, secrets=secrets, stamp_home=False, env_overlay=launch_terminal_env())
+        else:
+            token = push_state(scope=scope, home=None, secrets=BoundSecrets(secrets, None), terminal=None)
+    else:
+        token = bind_state(scope, secrets=build_profile_secret_scope(home))
+    with token:
+        yield

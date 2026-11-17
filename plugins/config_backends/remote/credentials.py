@@ -90,15 +90,16 @@ def _bind_owner_secret_scope(home: Path):
     scope. The poller thread, and any caller resolving another profile's token, has no scope (or
     the wrong profile's), so the read fails closed, the override counts as absent and the refresh
     token is sent to the default Portal. Bound always, not only when nothing is bound: a turn for
-    profile A resolving B's token must route on B's override. Only the secret scope is bound, and
-    secret sources are not hydrated here: both read the profile's config, which this token is used
-    to fetch.
+    profile A resolving B's token must route on B's override. The scope binds without hydration
+    or eager terminal derivation: both would read the config this token is used to fetch.
     """
-    from agent.secret_scope import is_multiplex_active, set_secret_scope
+    from agent.secret_scope import is_multiplex_active
+    from agent.runtime_scope import bind_state, scope_for_profile
     if not is_multiplex_active():
         return None  # single-profile: get_secret reads the process env, which is this profile's
     from tui_gateway.launch_profile_policy import owner_secret_scope
-    return set_secret_scope(owner_secret_scope(home), profile_home=str(home))
+    return bind_state(scope_for_profile(home), secrets=owner_secret_scope(home),
+                      hydrate_secrets=False, defer_terminal=True)
 
 
 def _idp_token() -> str:
