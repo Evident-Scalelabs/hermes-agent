@@ -70,7 +70,9 @@ class _FakeCDP:
             elif method == "Target.attachToTarget":
                 result = {"sessionId": f"S{conn}"}
             elif method == "Page.getLayoutMetrics":
-                result = {"cssVisualViewport": {"clientWidth": 1, "clientHeight": 1}}
+                result = {"cssVisualViewport": {
+                    "pageX": 0, "pageY": 0, "clientWidth": 1, "clientHeight": 1, "scale": 1,
+                }}
             elif method == "Page.captureScreenshot":
                 result = {"data": base64.b64encode(PNG).decode()}
             await ws.send(json.dumps({"id": msg["id"], "result": result}))
