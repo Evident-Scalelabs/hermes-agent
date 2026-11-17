@@ -182,7 +182,10 @@ def _truncate_results(results: list[dict], char_limit: int, debug_call_data: dic
             import hashlib
             html_path = _store_full_text(url + "#extracted-html", result["html"])
             if html_path:
-                result["htmlArtifact"] = {"path": html_path, "sha256": "sha256:" + hashlib.sha256(Path(html_path).read_bytes()).hexdigest()}
+                try:
+                    result["htmlArtifact"] = {"path": html_path, "sha256": "sha256:" + hashlib.sha256(Path(html_path).read_bytes()).hexdigest()}
+                except OSError:
+                    logger.warning("Stored HTML unavailable for %s; returning page content without its artifact", url, exc_info=True)
             result["html"], html_truncated = _truncate_with_footer(result["html"], url + "#extracted-html", char_limit)
             result["htmlTruncated"] = html_truncated
         if truncated:

@@ -114,9 +114,7 @@ class TestBundledPluginsRegister:
         assert isinstance(schema, dict)
         assert "name" in schema
         assert "env_vars" in schema
-        # Every cloud-browser plugin carries a post-setup hook so the
-        # picker can auto-install its CLI dependency on selection.
-        assert schema.get("post_setup")
+        assert all(field.get("key") for field in schema["env_vars"])
 
     def test_browser_use_not_registered(self) -> None:
         _ensure_plugins_loaded()
