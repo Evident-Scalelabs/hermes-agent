@@ -6,6 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
+PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC')
+
+
 
 @pytest.fixture
 def native_session(tmp_path, monkeypatch):
@@ -56,6 +59,36 @@ def test_existing_local_and_cloud_identity_uses_native_binding_without_cli(nativ
     assert not state["forbidden_calls"]
 
 
+def test_observer_capture_is_viewport_only_and_keeps_the_native_task(native_session, monkeypatch, tmp_path):
+    from tools import browser_supervisor, browser_tool
+    from tools.browser_tool_capture import capture_browser_screenshot
+
+    session, state, _ = native_session
+    calls = []
+    class Channel:
+        page_session_id = "mobile-page"
+        def is_valid(self):
+            return True
+        def call(self, method, params, *, session_id, timeout):
+            calls.append((method, params, session_id))
+            assert timeout > 0
+            if method == "Page.getLayoutMetrics":
+                return {"result": {"cssVisualViewport": {"clientWidth": 1}}}
+            return {"result": {"data": base64.b64encode(PNG).decode()}}
+    supervisor = SimpleNamespace(capture_only=True)
+    registry = SimpleNamespace(get=lambda *_a, **_k: supervisor,
+        get_or_start=lambda *_a, **_k: supervisor, capture=lambda *_a, **_k: Channel())
+    monkeypatch.setattr(browser_supervisor, "SUPERVISOR_REGISTRY", registry)
+
+    path = tmp_path / "mobile.png"
+    assert capture_browser_screenshot("fixture", path)["success"]
+    assert calls == [("Page.getLayoutMetrics", {}, "mobile-page"), ("Page.captureScreenshot", {
+        "format": "png", "fromSurface": True, "captureBeyondViewport": False,
+    }, "mobile-page")]
+    assert path.read_bytes() == PNG
+    assert browser_tool._active_sessions["fixture"] is session and not state["forbidden_calls"]
+
+
 @pytest.mark.parametrize("failure", ["missing_daemon", "stale_daemon", "exited_daemon", "missing_binding"])
 def test_unavailable_native_identity_cannot_attach_or_launch(native_session, monkeypatch, tmp_path, failure):
     from tools import browser_supervisor, browser_tool
@@ -93,7 +126,10 @@ def test_native_identity_change_during_capture_discards_image(native_session, mo
         def is_valid(self):
             return True
         def call(self, method, params, *, session_id, timeout):
-            assert method == "Page.captureScreenshot" and session_id == self.page_session_id and timeout > 0
+            assert session_id == self.page_session_id and timeout > 0
+            if method == "Page.getLayoutMetrics":
+                return {"result": {"cssVisualViewport": {"clientWidth": 1}}}
+            assert method == "Page.captureScreenshot"
             if change == "binding":
                 binding.write_text(json.dumps({"targetId": "T2", "pinned": False}))
             elif change == "daemon_generation":

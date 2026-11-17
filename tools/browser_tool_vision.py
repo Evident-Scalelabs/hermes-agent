@@ -74,6 +74,8 @@ def _native_vision_result(
                                                      image_size_bytes=screenshot_path.stat().st_size)
     meta = native_result.setdefault("meta", {})
     meta["screenshot_path"] = str(screenshot_path)
+    if "screenshot_scale_factor" in result.get("data", {}):
+        meta["screenshot_scale_factor"] = result["data"]["screenshot_scale_factor"]
     if lp_fallback_warning:
         meta["fallback_warning"] = lp_fallback_warning
     if annotate and result.get("data", {}).get("annotations"):
@@ -143,3 +145,44 @@ def _analyze_screenshot_with_aux_llm(screenshot_path: Path, question: str) -> st
 
     from agent.redact import redact_sensitive_text  # the LLM may have read secrets off the screenshot
     return redact_sensitive_text((response.choices[0].message.content or "").strip())
+
+
+def capture_vision_screenshot(effective_task_id: str, annotate: bool, screenshot_path: Path, lp_prerouted: bool, full_page: bool = True):
+    """Take (or adopt the pre-routed) screenshot; returns ``(result, path, error_json_or_None)``."""
+    from tools import browser_tool_session as _session
+
+    if lp_prerouted and screenshot_path.exists():
+        result = _lp._annotate_lightpanda_fallback(
+            {"success": True, "data": {"path": str(screenshot_path)}}, _bt._LP_VISION_FALLBACK_REASON)
+    else:
+        # In the sandbox the CLI writes to ITS filesystem; the file is fetched back below.
+        remote_path = _session.sandbox_screenshot_path(screenshot_path)
+        screenshot_args = (["--annotate"] if annotate else []) + (["--full"] if full_page else []) + [remote_path or str(screenshot_path)]
+        # A failed Lightpanda pre-route forces Chrome so _run_browser_command
+        # doesn't trigger a redundant LP fallback.
+        if not annotate and not full_page and not remote_path and _cloud._is_local_backend():
+            from tools.browser_tool_capture import capture_browser_screenshot
+            result = capture_browser_screenshot(effective_task_id, screenshot_path, timeout=_bt._get_command_timeout())
+        else:
+            result = _session._run_browser_command(effective_task_id, "screenshot", screenshot_args,
+                                          _engine_override="auto" if lp_prerouted else None)
+        if remote_path and result.get("success"):
+            try:
+                _session.fetch_sandbox_file(str((result.get("data") or {}).get("path") or remote_path), screenshot_path)
+                result.setdefault("data", {})["path"] = str(screenshot_path)
+            except Exception as exc:
+                _bt.logger.warning("could not fetch the sandbox screenshot %s: %s", remote_path, exc)
+    if not result.get("success"):
+        return result, screenshot_path, _bt._json_with_fallback(_bt._err(
+            f"Failed to take screenshot ({_vision_mode_label()} mode): {result.get('error', 'Unknown error')}"
+        ), result)
+    if result.get("data", {}).get("path"):
+        screenshot_path = Path(result["data"]["path"])
+    if not screenshot_path.exists():
+        return result, screenshot_path, _bt._dumps(_bt._err(
+            f"Screenshot file was not created at {screenshot_path} ({_vision_mode_label()} mode). "
+            f"This may indicate a socket path issue (macOS /var/folders/), "
+            f"a missing Chromium install ('agent-browser install'), "
+            f"or a stale daemon process."
+        ))
+    return result, screenshot_path, None
