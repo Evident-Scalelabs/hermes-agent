@@ -1,7 +1,8 @@
 """``hermes -z`` runs on the gateway session authority, never on an agent built in-process.
 
 Refs #145171 (EP-11a): the former ``hermes_cli.oneshot.run_oneshot`` / ``_run_agent`` path built a
-bare ``AIAgent`` outside the gateway and was reachable only from tests.
+bare ``AIAgent`` outside the gateway. Managed external callers retain that API; CLI dispatch
+still uses the gateway.
 """
 
 import sys
