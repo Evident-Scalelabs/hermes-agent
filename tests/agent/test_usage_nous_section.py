@@ -48,3 +48,4 @@ def test_another_providers_session_gets_the_labelled_nous_balance_without_topup_
     assert not any("/topup" in line or line.startswith("Top up:") for line in lines), lines
     assert seen == {"tokens": [state["access_token"]], "refreshed": 0}  # the stored token, never refreshed
     assert "(or run /topup)" in nous_usage_lines(nous_route=True)
+

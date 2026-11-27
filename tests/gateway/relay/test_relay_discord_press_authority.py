@@ -200,3 +200,4 @@ async def test_discord_press_from_a_member_whose_messages_arrive_here_still_answ
     await _discord_press(adapter, "bob", prompt_id, option)
 
     assert answered() is True
+

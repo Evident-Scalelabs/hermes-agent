@@ -454,3 +454,4 @@ async def test_lost_upload_notice_checks_the_window_after_its_last_wait(flooded,
 
     assert adapter.send.await_count == notices
     assert len(checks) == min(open_checks + 1, flood._MAX_WINDOW_WAITS + 2)
+

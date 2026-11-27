@@ -2,7 +2,7 @@
 """Browser automation tools driven by the agent-browser CLI.
 
 Backends — local headless Chromium, Browser Use / Browserbase / Firecrawl cloud
-(auto-detected from config + credentials), a user-supplied CDP endpoint, or Camofox —
+(auto-detected from config + credentials) or a user-supplied CDP endpoint —
 share one agent-facing behaviour: per-task sessions, accessibility-tree snapshots with
 ``@eN`` refs, automatic cleanup. Settings live under ``browser.*`` in config.yaml.
 Sibling ``browser_tool_*`` modules hold extracted clusters.
@@ -104,12 +104,7 @@ except ImportError:
     # with only ``get_provider``; no mutable registry → constant generation.
     def _browser_registry_generation(*, scope=None):
         return (0, 0)
-# Optional backends: Camofox (CAMOFOX_URL routes everything through its REST API)
-# and the Browser Use CLI.
-try:
-    from tools.browser_camofox import is_camofox_mode as _is_camofox_mode
-except ImportError:
-    _is_camofox_mode = lambda: False
+# Optional backend: the Browser Use CLI.
 try:
     from tools.browser_use_cli import is_browser_use_cli_mode as _is_browser_use_cli_mode
 except ImportError:
@@ -317,10 +312,9 @@ def _url_is_private(url: str) -> bool:
 def _hybrid_routes_locally(url: str) -> bool:
     """True when ``url`` belongs on the hybrid LOCAL sidecar instead of the cloud provider: a cloud provider
     configured, ``browser.auto_local_for_private_urls`` on, a private URL, no CDP override (it owns the
-    whole session), Camofox off (already local-only). Shared by browser_navigate and browser_exec."""
+    whole session). Shared by browser_navigate and browser_exec."""
     return (
         not _cdp._get_cdp_override_raw()
-        and not _is_camofox_mode()
         and _cloud._get_cloud_provider() is not None
         and _cloud._auto_local_for_private_urls()
         and _url_is_private(url)
@@ -768,9 +762,6 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     if safety_error is not None:
         return json.dumps(safety_error)
 
-    if _is_camofox_mode():
-        return _camofox("camofox_navigate", url, task_id)
-
     if auto_local_this_nav:
         logger.info("browser_navigate: auto-routing %s to local Chromium sidecar (cloud provider %s stays on "
                     "cloud for public URLs; set browser.auto_local_for_private_urls: false to disable)",
@@ -835,8 +826,6 @@ def browser_snapshot(
 ) -> str:
     """Text snapshot of the page's accessibility tree (compact unless ``full``).
     ``user_task`` is deprecated and unused (oversized snapshots always truncate-and-store)."""
-    if _is_camofox_mode():
-        return _camofox("camofox_snapshot", full, task_id)
     effective_task_id = _last_session_key(task_id or "default")
     result = _session._run_browser_command(effective_task_id, "snapshot", [] if full else ["-c"])
     if not result.get("success"):
@@ -886,12 +875,6 @@ def _tool_response(result: dict[str, Any], ok: dict[str, Any], default_error: st
     return _json_with_fallback({"success": True, **ok}, result)
 
 
-def _camofox(func_name: str, *args):
-    """Call ``tools.browser_camofox.<func_name>(*args)`` (Camofox mode delegation)."""
-    import importlib
-    return getattr(importlib.import_module("tools.browser_camofox"), func_name)(*args)
-
-
 def _guarded_action(task_id: Optional[str], action: str, command: str, args: list, ok: dict[str, Any], err: str) -> str:
     """Input action on the task's current page, refused when the SSRF guard flags the page."""
     effective_task_id = _last_session_key(task_id or "default")
@@ -907,16 +890,12 @@ def _at_ref(ref: str) -> str:
 
 def browser_click(ref: str, task_id: Optional[str] = None) -> str:
     """Click the element ``ref`` (e.g. "@e5")."""
-    if _is_camofox_mode():
-        return _camofox("camofox_click", ref, task_id)
     ref = _at_ref(ref)
     return _guarded_action(task_id, "click", "click", [ref], {"clicked": ref}, f"Failed to click {ref}")
 
 
 def browser_type(ref: str, text: str, task_id: Optional[str] = None) -> str:
     """Type ``text`` into the element ``ref`` (fill: clears, then types)."""
-    if _is_camofox_mode():
-        return _camofox("camofox_type", ref, text, task_id)
     effective_task_id = _last_session_key(task_id or "default")
     blocked = _blocked_private_page_action(effective_task_id, "type")
     if blocked is not None:
@@ -939,8 +918,6 @@ def browser_scroll(direction: str, task_id: Optional[str] = None) -> str:
     if direction not in {"up", "down"}:
         return _dumps(_err(f"Invalid direction '{direction}'. Use 'up' or 'down'."))
     _SCROLL_PIXELS = 500  # ~half a viewport in one call instead of 5x subprocess calls
-    if _is_camofox_mode():  # Camofox REST API has no pixel argument; use repeated calls
-        return [_camofox("camofox_scroll", direction, task_id) for _ in range(5)][-1]
     effective_task_id = _last_session_key(task_id or "default")
     result = _session._run_browser_command(effective_task_id, "scroll", [direction, str(_SCROLL_PIXELS)])
     return _tool_response(result, {"scrolled": direction}, f"Failed to scroll {direction}")
@@ -948,8 +925,6 @@ def browser_scroll(direction: str, task_id: Optional[str] = None) -> str:
 
 def browser_back(task_id: Optional[str] = None) -> str:
     """Navigate back in browser history."""
-    if _is_camofox_mode():
-        return _camofox("camofox_back", task_id)
     effective_task_id = _last_session_key(task_id or "default")
     result = _session._run_browser_command(effective_task_id, "back", [])
     if result.get("success"):
@@ -963,8 +938,6 @@ def browser_back(task_id: Optional[str] = None) -> str:
 
 def browser_press(key: str, task_id: Optional[str] = None) -> str:
     """Press a keyboard key (e.g. "Enter", "Tab")."""
-    if _is_camofox_mode():
-        return _camofox("camofox_press", key, task_id)
     return _guarded_action(task_id, "press", "press", [key], {"pressed": key}, f"Failed to press {key}")
 
 
@@ -1004,9 +977,6 @@ def browser_console(clear: bool = False, expression: Optional[str] = None, task_
         if policy_error:
             return _dumps(_err(policy_error))
         return _browser_eval(expression, task_id)
-
-    if _is_camofox_mode():
-        return _camofox("camofox_console", clear, task_id)
 
     effective_task_id = _last_session_key(task_id or "default")
     blocked = _blocked_private_page_content(effective_task_id)
@@ -1118,10 +1088,6 @@ def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
                 "browser mode."
             ))
 
-    # Camofox keeps its own raw-task_id-keyed session map, so pass the raw id.
-    if _is_camofox_mode():
-        return _camofox_eval(expression, task_id)
-
     # The supervisor answers over its own WebSocket and never reaches _run_browser_command, so the Bot
     # Desktop lease fence has to bracket it here too — otherwise the one command that reads arbitrary
     # page state is the one a human's takeover does not stop. Same fence, same session identity.
@@ -1136,29 +1102,6 @@ def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
     if not result.get("success"):
         return _eval_failure_response(result)
     return _eval_result_or_blocked(effective_task_id, _parse_eval_value(result.get("data", {}).get("result")), result)
-
-
-def _camofox_eval(expression: str, task_id: Optional[str] = None) -> str:
-    """Evaluate JS via Camofox's /tabs/{tab_id}/evaluate endpoint (if available)."""
-    from tools.browser_camofox import _ensure_tab, _post
-    try:
-        tab_info = _ensure_tab(task_id or "default")
-        tab_id = tab_info.get("tab_id") or tab_info.get("id")
-        user_id = tab_info["user_id"]
-        resp = _post(f"/tabs/{tab_id}/evaluate", body={"expression": expression, "userId": user_id})
-        parsed = _parse_eval_value(resp.get("result") if isinstance(resp, dict) else resp)
-
-        if _eval_policy._eval_ssrf_guard_active(task_id or "default"):
-            _blocked_url = _eval_policy._camofox_current_page_private_url(tab_id, user_id)
-            if _blocked_url:
-                return _blocked_private_page_json(_blocked_url, _EVAL_NAVIGATED_WHY)
-
-        return _dumps(_eval_ok_response(parsed), default=str)
-    except Exception as e:
-        if any(code in str(e) for code in ("404", "405", "501")):  # server without eval support
-            return json.dumps(_err("JavaScript evaluation is not supported by this Camofox server. "
-                                   "Use browser_snapshot or browser_vision to inspect page state."))
-        return tool_error(str(e), success=False)
 
 
 def _maybe_start_recording(task_id: str):
@@ -1207,9 +1150,6 @@ _GET_IMAGES_JS = "JSON.stringify([...document.images].map(img => ({src: img.src,
 
 def browser_get_images(task_id: Optional[str] = None) -> str:
     """List the page's images (src, alt, natural size), excluding data: URIs."""
-    if _is_camofox_mode():
-        return _camofox("camofox_get_images", task_id)
-
     effective_task_id = _last_session_key(task_id or "default")
     result = _session._run_browser_command(effective_task_id, "eval", [_GET_IMAGES_JS])
     if not result.get("success"):
@@ -1238,11 +1178,6 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
     """Screenshot the current page for visual inspection. Native-vision models get the image
     attached to the conversation; otherwise the auxiliary vision model returns a text
     analysis. The file is kept and its path returned (MEDIA:<path>)."""
-    if _is_camofox_mode():
-        if not full_page:
-            return _dumps(_err("Viewport-only capture is unavailable through the Camofox vision adapter."))
-        return _camofox("camofox_vision", question, annotate, task_id)
-
     if not full_page and _cloud._get_browser_engine() == "lightpanda" and _cloud._should_inject_engine("lightpanda"):
         return _dumps(_err("Viewport-only capture requires a graphical browser; Lightpanda fallback cannot preserve the current view."))
 
@@ -1296,14 +1231,13 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
 # Registry
 # ---------------------------------------------------------------------------
 from tools.registry import registry, tool_error
-from tools.browser_extension_router import extension_controller_available, routed_browser_handler
 
 _BROWSER_SCHEMA_MAP = {s["name"]: s for s in BROWSER_TOOL_SCHEMAS}
 
 
 def check_browser_routed_requirements(action: str = "browser_snapshot") -> bool:
-    """Availability gate for tools that can use either browser backend."""
-    return _install.check_browser_requirements() or extension_controller_available(action)
+    """Availability gate shared by the navigation and interaction tools."""
+    return _install.check_browser_requirements()
 
 
 def _fallback_call(fn_name: str, arg_defaults: dict[str, Any], extra_kw: tuple = ()):
@@ -1353,10 +1287,7 @@ def _typed_browser_check(check):
 
 def _routed_handler(name: str, fallback):
     def handler(args, **kw):
-        return record_browser_call(lambda: routed_browser_handler(
-            name, args, fallback=lambda: fallback(args, kw),
-            task_id=kw.get("task_id"), session_id=kw.get("session_id"),
-        ), _cloud.browser_backend_name)
+        return record_browser_call(lambda: fallback(args, kw), _cloud.browser_backend_name)
     return handler
 
 

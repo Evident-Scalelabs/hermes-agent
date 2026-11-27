@@ -48,7 +48,6 @@ def test_dispatched_command_with_unknown_outcome_never_retries_or_switches_engin
     ("browser_console", {"expression": "document.title"}),
 ])
 def test_native_tool_preserves_unknown_outcome_for_the_model(monkeypatch, name, args):
-    monkeypatch.setattr(browser, "_is_camofox_mode", lambda: False)
     monkeypatch.setattr(browser, "_last_session_key", lambda task: task)
     monkeypatch.setattr(browser, "_navigation_session_key", lambda task, url: task)
     monkeypatch.setattr(browser, "_url_policy_error", lambda *args, **kw: None)

@@ -129,3 +129,4 @@ async def test_whatsapp_cloud_tap(approvers, allowed, monkeypatch):
     if not allowed:
         assert adapter._http_client.post.call_args.kwargs["json"]["text"]["body"] == REFUSAL
         assert adapter._exec_approval_state.get("a1") == "sess-w"
+

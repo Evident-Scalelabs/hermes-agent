@@ -90,3 +90,4 @@ def warm_stt_provider(
     result.update(warmed=True, action="cached" if hot_before else "loaded", elapsed_ms=elapsed_ms)
     logger.info("[STT] warm-up local model '%s': %s in %dms", model_name, result["action"], elapsed_ms)
     return result
+

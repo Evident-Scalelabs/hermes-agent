@@ -15,7 +15,6 @@ class ViewportCaptureTest(unittest.TestCase):
             screenshot = Path(directory) / 'shot.png'
             screenshot.write_bytes(b'original screenshot')
             with (
-                patch('tools.browser_tool._is_camofox_mode', return_value=False),
                 patch('tools.browser_tool_cloud._get_browser_engine', return_value='chrome'),
                 patch('tools.browser_tool_cloud._is_local_backend', return_value=False),
                 patch('tools.browser_tool_session._run_browser_command', return_value={'success': True, 'data': {'path': str(screenshot)}}) as command,
@@ -31,9 +30,6 @@ class ViewportCaptureTest(unittest.TestCase):
                     self.assertEqual('--full' in command.call_args.args[2], full)
                     self.assertEqual(command.call_args.args[0], 'viewport-test')
                     self.assertEqual(screenshot.read_bytes(), b'original screenshot')
-                with patch('tools.browser_tool._is_camofox_mode', return_value=True):
-                    result = registry.dispatch('browser_vision', {'question': 'Inspect', 'full_page': False})
-                    self.assertFalse(json.loads(result)['success'])
                 with (
                     patch('tools.browser_tool_cloud._get_browser_engine', return_value='lightpanda'),
                     patch('tools.browser_tool_cloud._should_inject_engine', return_value=True),
@@ -50,7 +46,6 @@ class ViewportCaptureTest(unittest.TestCase):
             screenshot = Path(directory) / 'shot.png'
             screenshot.write_bytes(b'original viewport')
             with (
-                patch('tools.browser_tool._is_camofox_mode', return_value=False),
                 patch('tools.browser_tool_cloud._is_local_backend', return_value=True),
                 patch('tools.browser_tool_cloud._get_browser_engine', return_value='chrome'),
                 patch('tools.browser_tool_session.sandbox_screenshot_path', return_value=None),

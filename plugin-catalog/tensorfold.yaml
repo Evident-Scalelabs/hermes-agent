@@ -24,3 +24,4 @@ capabilities:
   provides_middleware: []
   requires_env:
   - TENSORFOLD_API_KEY
+

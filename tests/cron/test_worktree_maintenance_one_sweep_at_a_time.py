@@ -89,3 +89,4 @@ def test_a_waiting_sweep_runs_once_the_one_ahead_fails(tmp_path, monkeypatch):
     finally:
         release.set()
         _join_prune_threads()
+

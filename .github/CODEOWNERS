@@ -64,3 +64,4 @@ uv.lock                         @NousResearch/hermes-agent-core
 
 # The trust model and the scope authority for security reports.
 /SECURITY.md                    @NousResearch/hermes-agent-core
+

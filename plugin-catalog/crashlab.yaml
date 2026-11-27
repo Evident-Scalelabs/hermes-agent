@@ -55,3 +55,4 @@ capabilities:
   provides_middleware:
     - tool_execution
   requires_env: []
+

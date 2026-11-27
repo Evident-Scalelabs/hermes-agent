@@ -96,9 +96,12 @@ dependencies = [
   # it out of the lazy-install path that exists only for the heavy matrix deps.
   "Markdown==3.11.2; python_version >= '3.14'",
   # Skills Hub (GitHub App JWT auth — optional, only needed for bot identity)
-  "PyJWT[crypto]==2.15.1; python_version >= '3.14'",  # JWKS redirect and malformed-payload fixes; padded JWS compatibility.
-  # 2.8.0 fixes compressed/chunked response exhaustion (GHSA-gh4c-6fx4-qh6g,
-  # GHSA-vxq7-64xx-v4gw) while preserving Hindsight's supported <3 range.
+  "PyJWT[crypto]==2.15.1; python_version >= '3.14'",  # PYSEC-2026-175/177/178/179 + GHSA-ffc3-869f-jxw9, GHSA-42vr-xj54-vc7v (fixed in 2.14.0/2.15.0)
+  # urllib3 2.8.0 fixes GHSA-8988-9cw3-xx77 (proxy TLS config ignored),
+  # GHSA-gh4c-6fx4-qh6g (chunked-deflate infinite loop) and
+  # GHSA-vxq7-64xx-v4gw (unbounded chunk buffering). 2.8.0 is the latest
+  # release older than 3 days and still supports Python >= 3.10
+  # (3.11 bridge intact).
   "urllib3>=2.8.0,<3; python_version >= '3.14'",
   # PyJWT[crypto] pulls cryptography in transitively. Pin it here as well, so
   # that the WeCom and Weixin crypto paths cannot fall below the patched
@@ -131,6 +134,10 @@ dependencies = [
   # Browser CDP supervisor + browser_dialog import this directly. Keep core
   # so browser tool discovery doesn't fail on lean installs.
   "websockets==15.0.1; python_version >= '3.14'",
+  # Engine of the default browser_exec tool (the `browser-use` CLI is a thin
+  # wrapper over it). Pure Python, and its pins match Pillow/websockets above,
+  # so it rides in the main venv and every install, Desktop bundle included,
+  # ships it without a separate tool environment.
   "browser-harness==0.1.13; python_version >= '3.14'",
   # .gitignore-aware file matching for desktop build stamp.
   "pathspec==1.1.1; python_version >= '3.14'",
@@ -459,8 +466,8 @@ mistral = ["mistralai==2.10.1"]
 # PM on first use; never a core dependency and deliberately
 # NOT in [all].
 otlp = [
-  "opentelemetry-sdk==1.45.1",
-  "opentelemetry-exporter-otlp-proto-http==1.45.1",
+  "opentelemetry-sdk==1.45.2",
+  "opentelemetry-exporter-otlp-proto-http==1.45.2",
 ]
 bedrock = ["boto3==1.43.115"]
 vertex = ["google-auth==2.62.0"]
@@ -728,6 +735,10 @@ include = [
   "hermes_agent.*",
   "pm",
   "pm.*",
+  "persistence",
+  "persistence.*",
+  "session_rules",
+  "session_rules.*",
   "tools",
   "tools.*",
   "utils",

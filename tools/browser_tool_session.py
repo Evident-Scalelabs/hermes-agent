@@ -918,7 +918,7 @@ def _dispatch_browser_command(
             backend_args += ["--cdp", str(bd_port)]
         if _cloud._is_headed_mode():
             backend_args.append("--headed")
-        if engine != "auto" and not _bt._is_camofox_mode():
+        if engine != "auto":
             backend_args += ["--engine", engine]
 
     argv = _agent_browser_argv(browser_cmd)

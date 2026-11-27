@@ -363,3 +363,4 @@ class ScopedPipe:
 
     def __repr__(self) -> str:
         return f"ScopedPipe({self._identity.key})"
+

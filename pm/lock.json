@@ -40,60 +40,60 @@
     "chromium": {
       "artifacts": {
         "darwin-arm64": {
-          "sha256": "3406b38b52b7d341d74450eb7b369be038c9fec9894c8b8a9e9e9f97333caf2f",
-          "url": "https://cdn.playwright.dev/builds/cft/157.0.8103.38/mac-arm64/chrome-mac-arm64.zip"
+          "sha256": "6caf16b007aafaf6d4a4db252262be8ebbf0d91a2af005257e388996dbe463d6",
+          "url": "https://cdn.playwright.dev/builds/cft/158.0.8127.88/mac-arm64/chrome-mac-arm64.zip"
         },
         "darwin-x64": {
-          "sha256": "c6fcc2869b0d5a421e880d7bcdabe96e4261c4100e125fc4e4daf6346474efa6",
-          "url": "https://cdn.playwright.dev/builds/cft/157.0.8103.38/mac-x64/chrome-mac-x64.zip"
+          "sha256": "4529a2bdbea10cf69f79b8b0ff43a5a23e8dc8b033da85cbe873afb81855579a",
+          "url": "https://cdn.playwright.dev/builds/cft/158.0.8127.88/mac-x64/chrome-mac-x64.zip"
         },
         "linux-arm64": {
-          "sha256": "5517510e61657ff43ee9ab804ecd1a499b3d5bd3caf72f097516bd6565ba5a17",
-          "url": "https://cdn.playwright.dev/builds/cft/157.0.8103.38/linux-arm64/chrome-linux-arm64.zip"
+          "sha256": "91669b5de79af808d498037dd974e4b09461776a1b5240b3bb656abd17e5d3ab",
+          "url": "https://cdn.playwright.dev/builds/cft/158.0.8127.88/linux-arm64/chrome-linux-arm64.zip"
         },
         "linux-x64": {
-          "sha256": "8cdeb344e9b2cefe59f4aea8d1d93d5d93054c03cde217665c16fc1f62e72a66",
-          "url": "https://cdn.playwright.dev/builds/cft/157.0.8103.38/linux64/chrome-linux64.zip"
+          "sha256": "59e3b43f8b3aaa292238fbdcfb36a93127debd53e212510dcdc2cc8812b4b57e",
+          "url": "https://cdn.playwright.dev/builds/cft/158.0.8127.88/linux64/chrome-linux64.zip"
         },
         "win32-arm64": {
-          "sha256": "ae0deef27d449e1d7529df7705d609bab102de48464da13567ed3dd2ee1a0586",
-          "url": "https://cdn.playwright.dev/builds/cft/157.0.8103.38/win64/chrome-win64.zip"
+          "sha256": "fda73ca9ffc7f02c5c85165cb472152540a76a7cecd8ec11314ea781e4454109",
+          "url": "https://cdn.playwright.dev/builds/cft/158.0.8127.88/win64/chrome-win64.zip"
         },
         "win32-x64": {
-          "sha256": "ae0deef27d449e1d7529df7705d609bab102de48464da13567ed3dd2ee1a0586",
-          "url": "https://cdn.playwright.dev/builds/cft/157.0.8103.38/win64/chrome-win64.zip"
+          "sha256": "fda73ca9ffc7f02c5c85165cb472152540a76a7cecd8ec11314ea781e4454109",
+          "url": "https://cdn.playwright.dev/builds/cft/158.0.8127.88/win64/chrome-win64.zip"
         }
       },
-      "version": "157.0.8103.38"
+      "version": "158.0.8127.88"
     },
     "cua-driver": {
       "artifacts": {
         "darwin-arm64": {
-          "sha256": "f827a393c0dae24943ddb454d85abb6b592d8636e6a99f6c349f81f5f516975f",
-          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.21.0/cua-driver-rs-0.21.0-darwin-universal.tar.gz"
+          "sha256": "19e5e652db83cc0324e7a3898ee875b87b265ad7e1c09fd862ef78869480f61d",
+          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.52.0/cua-driver-rs-0.52.0-darwin-universal.tar.gz"
         },
         "darwin-x64": {
-          "sha256": "f827a393c0dae24943ddb454d85abb6b592d8636e6a99f6c349f81f5f516975f",
-          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.21.0/cua-driver-rs-0.21.0-darwin-universal.tar.gz"
+          "sha256": "19e5e652db83cc0324e7a3898ee875b87b265ad7e1c09fd862ef78869480f61d",
+          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.52.0/cua-driver-rs-0.52.0-darwin-universal.tar.gz"
         },
         "linux-arm64": {
-          "sha256": "6b3a308c6741dd8291aad22a308bd2ec8eb52eab64687be007ac86ceaf7e3307",
-          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.21.0/cua-driver-rs-0.21.0-linux-arm64-binary.tar.gz"
+          "sha256": "5c7d0a36c0e368fb2847f226ca1435c60bfb79ac3968d9b08a94d82c97da880a",
+          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.52.0/cua-driver-rs-0.52.0-linux-arm64-binary.tar.gz"
         },
         "linux-x64": {
-          "sha256": "cf29bfaad16737e31e72f38dad2a6424f24b21a4ac2edea885e83cb9d5034135",
-          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.21.0/cua-driver-rs-0.21.0-linux-x86_64-binary.tar.gz"
+          "sha256": "55c99ec4177170b1a440a5efd41e55bacae1e9fe257c96dcd9e5b81ef9085036",
+          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.52.0/cua-driver-rs-0.52.0-linux-x86_64-binary.tar.gz"
         },
         "win32-arm64": {
-          "sha256": "79caf7e4f55cdab08533abf7ead4038132aa070040669238d806d057f648cc5f",
-          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.21.0/cua-driver-rs-0.21.0-windows-arm64-binary.zip"
+          "sha256": "73e0a7daae34b81a15aa16d3827cb44b975254130906f99dfcd49ea4c518d40c",
+          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.52.0/cua-driver-rs-0.52.0-windows-arm64-binary.zip"
         },
         "win32-x64": {
-          "sha256": "d63f6a78e65afc06524048f5557fed36cdf01f0a8a680236e93c9a2fb3587f44",
-          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.21.0/cua-driver-rs-0.21.0-windows-x86_64-binary.zip"
+          "sha256": "788178cbdcce4de0121f6d04ef6cb5e9d512503371e60a70563aa6f69cdd50af",
+          "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.52.0/cua-driver-rs-0.52.0-windows-x86_64-binary.zip"
         }
       },
-      "version": "0.21.0"
+      "version": "0.52.0"
     },
     "dmgbuild": {
       "artifacts": {

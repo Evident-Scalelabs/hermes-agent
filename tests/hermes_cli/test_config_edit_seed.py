@@ -113,3 +113,4 @@ def test_template_seeded_config_keeps_the_update_backup_default(tmp_path, monkey
 
     assert _resolve_pre_update_backup_mode(Namespace(no_backup=False, backup=False)) == \
         DEFAULT_CONFIG["updates"]["pre_update_backup"]
+

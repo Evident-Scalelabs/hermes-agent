@@ -26,3 +26,4 @@ def _migrate_profile_config_if_outdated(profile_dir: Path) -> None:
                 migrate_config(interactive=False, quiet=True)
         finally:
             reset_hermes_home_override(token)
+

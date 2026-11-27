@@ -16,3 +16,4 @@ capabilities:
   provides_hooks: [pre_tool_call, pre_llm_call]
   provides_middleware: []
   requires_env: []
+

@@ -33,13 +33,10 @@ def lightpanda_engine_status() -> tuple[bool, str]:
     it or the driver running it. Mirrors ``_should_inject_engine`` / ``_resolve_backend_cdp``
     precedence with config-only gates (no network I/O) for ``/browser status`` / ``hermes doctor``.
     """
-    _bt = _origin()
     if not _using_lightpanda_engine():
         return False, ""
     if _cdp._get_cdp_override_raw():
         return False, "a CDP override is active (/browser connect or browser.cdp_url)"
-    if _bt._is_camofox_mode():
-        return False, "Camofox is the selected browser (CAMOFOX_URL)"
     # Real-profile before cloud provider: browser_exec resolves real-profile before
     # the backend, so with both set the real-profile toggle claims the session.
     if _cloud._use_real_profile():

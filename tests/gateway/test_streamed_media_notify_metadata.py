@@ -68,3 +68,4 @@ async def test_streamed_media_delivery_carries_notify_metadata(tmp_path, monkeyp
     assert len(adapter.voices) == 1
     metadata = adapter.voices[0]["metadata"] or {}
     assert metadata.get("notify") is True
+
