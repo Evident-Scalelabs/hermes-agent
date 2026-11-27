@@ -787,15 +787,6 @@ def _cleanup_single_browser_session(task_id: str) -> Optional[bool]:
     """Reap a single browser session by its exact session key."""
     _cdp._stop_cdp_supervisor(task_id)  # close our WebSocket BEFORE the backend tears down the endpoint
 
-    # Camofox: managed persistence keeps the profile (cookies) across tasks; skip the full
-    # close then — the inactivity reaper still frees idle resources.
-    if _bt._is_camofox_mode():
-        def _camofox_cleanup():
-            from tools.browser_camofox import camofox_close, camofox_soft_cleanup
-            if not camofox_soft_cleanup(task_id):
-                camofox_close(task_id)
-        _best_effort(f"Camofox cleanup for task {task_id}", _camofox_cleanup)
-
     _bt.logger.debug("cleanup_browser called for task_id: %s", task_id)
     _bt.logger.debug("Active sessions: %s", list(_bt._active_sessions.keys()))
 

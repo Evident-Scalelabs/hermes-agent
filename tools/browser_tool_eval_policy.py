@@ -150,18 +150,3 @@ def _enforce_browser_eval_policy(expression: str) -> Optional[str]:
             "without expression for normal inspection, or set "
             "browser.restrict_evaluate: false in config.yaml to allow programmatic evaluation.")
 
-
-def _camofox_current_page_private_url(tab_id: str, user_id: str) -> Optional[str]:
-    """Camofox analogue of ``_current_page_private_url`` (evaluate endpoint instead of the CLI). Fail-open
-    on probe failure, matching the snapshot/vision guards — do not make fail-closed without the sibling."""
-    _bt = _origin()
-    try:
-        from tools.browser_camofox import _post
-        data = _post(f"/tabs/{tab_id}/evaluate", body={"expression": "window.location.href", "userId": user_id})
-        current_url = str(data.get("result") if isinstance(data, dict) else data or "")
-        current_url = current_url.strip().strip('"').strip("'")
-        if current_url and _url_blocked(_bt, current_url):
-            return current_url
-    except Exception as exc:
-        _bt.logger.debug("_camofox_current_page_private_url: probe failed (%s)", exc)
-    return None

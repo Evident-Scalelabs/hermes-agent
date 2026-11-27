@@ -5,17 +5,15 @@ import json
 import pytest
 
 from agent import display, redact
-from tools import browser_camofox, browser_tool
+from tools import browser_tool
 from tools.registry import registry
 
 
-@pytest.mark.parametrize("backend", ["local", "camofox"])
 @pytest.mark.parametrize("success", [True, False])
 @pytest.mark.parametrize("text", ["ordinary search words", "sk-" + "A" * 30])
-def test_registered_browser_type_preserves_input_and_scrubs_echoes(monkeypatch, backend, success, text):
+def test_registered_browser_type_preserves_input_and_scrubs_echoes(monkeypatch, success, text):
     monkeypatch.setattr(redact, "_REDACT_ENABLED", False)
     assert redact.redact_sensitive_text(text) == text
-    monkeypatch.setattr(browser_tool, "_is_camofox_mode", lambda: backend == "camofox")
     sent = []
 
     def local_command(_task_id, command, args):
@@ -23,15 +21,7 @@ def test_registered_browser_type_preserves_input_and_scrubs_echoes(monkeypatch, 
         return {"success": success, "error": f"Could not type {text}",
                 "fallback_warning": {"echoes": [f"Attempted {text}"]}}
 
-    def camofox_post(_url, body):
-        sent.append(("fill", ["@field", body["text"]]))
-        if not success:
-            raise RuntimeError(f"Could not type {text}")
-        return {}
-
     monkeypatch.setattr(browser_tool._session, "_run_browser_command", local_command)
-    monkeypatch.setattr(browser_camofox, "_require_tab", lambda *_: ({"user_id": "test", "tab_id": "test"}, None))
-    monkeypatch.setattr(browser_camofox, "_post", camofox_post)
 
     raw = registry.dispatch("browser_type", {"ref": "@field", "text": text}, task_id="type-redaction")
     assert isinstance(raw, str)

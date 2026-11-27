@@ -170,14 +170,11 @@ def _is_local_backend() -> bool:
 
     SSRF protection only matters when the browser can reach networks the terminal cannot (cloud backends,
     containerized terminals). A CDP override is never trusted as local (that Chrome may live off-host) and MUST
-    be checked before the Camofox short-circuit; ``_is_local_mode`` treats overrides the same way — keep the two
+    be checked first; ``_is_local_mode`` treats overrides the same way — keep the two
     in agreement.
     """
-    _bt = _origin()
     if _cdp._get_cdp_override_raw():
         return False
-    if _bt._is_camofox_mode():
-        return True
     if _get_cloud_provider() is not None:
         return False
     # Scope-aware: under gateway multiplexing the routed profile's terminal backend lives in the per-turn scope.
@@ -189,12 +186,9 @@ def _is_local_backend() -> bool:
 
 def browser_backend_name() -> str:
     """Shared-metrics label for the backend legacy browser calls use in the active profile, in session-creation
-    precedence (CDP override > Camofox > cloud provider > local engine). Config reads only, no network I/O."""
-    _bt = _origin()
+    precedence (CDP override > cloud provider > local engine). Config reads only, no network I/O."""
     if _cdp._get_cdp_override_raw():
         return "cdp"
-    if _bt._is_camofox_mode():
-        return "camofox"
     provider = _get_cloud_provider()
     if provider is not None:
         return str(getattr(provider, "name", "") or "other")
@@ -231,9 +225,8 @@ def _is_headed_mode() -> bool:
 
 
 def _should_inject_engine(engine: str) -> bool:
-    """True when ``--engine`` should be added: explicit (non-``auto``) engine on a non-cloud, non-camofox local session."""
-    _bt = _origin()
-    return engine != "auto" and not _bt._is_camofox_mode() and _is_local_mode()
+    """True when ``--engine`` should be added: explicit (non-``auto``) engine on a non-cloud local session."""
+    return engine != "auto" and _is_local_mode()
 
 
 def _auto_local_for_private_urls() -> bool:

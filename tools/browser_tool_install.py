@@ -135,9 +135,6 @@ def check_browser_requirements() -> bool:
     # Browser Use CLI backend: browser_exec replaces the whole browser_* surface (incl. browser_cdp/browser_dialog check_fns).
     if _bt._is_browser_use_cli_mode():
         return False
-    # Camofox only needs the server URL, no agent-browser CLI.
-    if _bt._is_camofox_mode():
-        return True
     # CDP override needs no local binary. Raw (no-I/O) check: this runs during schema build, where a stale endpoint must not cost a blocking probe.
     if _cdp._get_cdp_override_raw():
         return True
