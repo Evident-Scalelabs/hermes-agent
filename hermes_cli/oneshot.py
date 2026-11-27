@@ -467,19 +467,24 @@ def _load_resume_target(session_db, resume: Optional[str]) -> tuple[Optional[str
     """
     if not resume:
         return None, [], None
-    if session_db is None:
+    from agent.agent_init_session import stand_in_interface
+    store = stand_in_interface(session_db)
+    if store is None:
         raise RuntimeError(f"cannot resume session {resume}: session store unavailable")
-    resolved = session_db.resolve_resume_session_id(resume) or resume
+    # The SessionDB stand-in carries only plugin-guide methods; resume reads go through its storage interface.
+    from hermes_cli.gateway_session_store import SurfaceLabelReader
+    reader = SurfaceLabelReader(store)
+    resolved = reader.resolve_resume_session_id(resume) or resume
     session_meta = session_db.get_session(resolved)
     if not session_meta:
         raise RuntimeError(f"session not found: {resume}")
     # A Kanban worker transcript resumes only through a dispatcher-owned run (#68779): a
     # quiet one-shot resume would be a write-capable process the board cannot observe.
     from hermes_cli.kanban_resume_guard import kanban_resume_refusal
-    if (kanban_refusal := kanban_resume_refusal(session_db, resolved)) is not None:
+    if (kanban_refusal := kanban_resume_refusal(session_db, resolved, persistence=store)) is not None:
         raise RuntimeError(f"cannot resume session {resume}: {kanban_refusal}")
-    session_db.assert_resume_safe(resolved, tip_only=True)
-    restored, _display = session_db.get_resume_conversations(resolved)
+    reader.assert_resume_safe(resolved, tip_only=True)
+    restored, _display = reader.get_resume_conversations(resolved)
     history = [m for m in restored if m.get("role") != "session_meta"]
     try:
         session_db.reopen_session(resolved)

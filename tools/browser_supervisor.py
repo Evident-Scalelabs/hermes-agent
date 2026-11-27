@@ -104,6 +104,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
     domains and auto-attach. ``snapshot()`` / ``respond_to_dialog()`` / ``evaluate_runtime()``
     are sync, thread-safe bridges onto that loop; all CDP I/O lives on the loop."""
 
+    capture_only = False  # an instance built without __init__ is an ordinary supervisor
+
     def __init__(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
                  dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, target_id: Optional[str] = None,
                  expires_at: Optional[float] = None, capture_only: bool = False) -> None:

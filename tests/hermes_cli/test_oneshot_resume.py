@@ -127,11 +127,11 @@ class TestApplyStoredSessionRuntime:
         db = SessionDB(db_path=tmp_path / "state.db")
         db.create_session(session_id="s1", source="cli")
         if model:
-            db.update_session_model("s1", model)
+            db._store.sessions.update_model("s1", model)
         if route is not None:
             # Same two shapes _persist_model_switch_to_session writes (nested gateway_runtime
             # for CLI resume, top-level keys for TUI).
-            db.patch_session_model_config("s1", {"gateway_runtime": route, **route})
+            db._store.sessions.patch_model_config("s1", {"gateway_runtime": route, **route})
         meta = db.get_session("s1")
         db.close()
         return meta
@@ -186,8 +186,8 @@ class TestRunAgentResumeRuntime:
         db = SessionDB(db_path=tmp_path / "state.db")
         db.create_session(session_id="s1", source="cli")
         db.append_message("s1", "user", content="hi")
-        db.update_session_model("s1", "stored-model")
-        db.patch_session_model_config(
+        db._store.sessions.update_model("s1", "stored-model")
+        db._store.sessions.patch_model_config(
             "s1", {"gateway_runtime": {"provider": "custom:stored", "base_url": "http://stored:9"},
                    "provider": "custom:stored", "base_url": "http://stored:9"})
         db.end_session("s1", "agent_close")
@@ -232,7 +232,7 @@ class TestRunAgentResumeRuntime:
 
         db = SessionDB(db_path=tmp_path / "state.db")
         db.create_session(session_id="s1", source="cli")
-        db.update_session_model("s1", "stored-model")
+        db._store.sessions.update_model("s1", "stored-model")
 
         captured = {}
 
