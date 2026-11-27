@@ -413,3 +413,4 @@ async def test_shutdown_joins_cleanup_created_after_its_initial_snapshot(monkeyp
         resume_delivery.set()
         finish_cleanup.set()
         await asyncio.gather(shutdown, return_exceptions=True)
+

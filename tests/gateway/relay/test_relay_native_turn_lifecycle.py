@@ -365,3 +365,4 @@ async def test_a_cancel_while_the_start_hook_runs_leaks_no_typing():
         await task
     await async_wait_until(lambda: not _typing_refreshes(), timeout=2)
     assert authority.producer_turns == {}
+

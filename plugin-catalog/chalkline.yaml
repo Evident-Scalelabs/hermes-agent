@@ -42,3 +42,4 @@ capabilities:
     - on_session_end
   provides_middleware: []
   requires_env: []
+

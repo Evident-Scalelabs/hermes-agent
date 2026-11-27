@@ -79,3 +79,4 @@ def test_each_home_sees_only_its_own_static_models(homes):
     assert _bound(homes["g"], _view) == ("acme-g-small", ["acme-g-small", "acme-g-large"], True)
     assert _bound(homes["a"], _view) == ("", [], False)
     assert _bound(homes["f"], _view) == ("acme-f-only", ["acme-f-only"], True)
+

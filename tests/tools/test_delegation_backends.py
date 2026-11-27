@@ -509,3 +509,4 @@ def test_an_unavailable_replacement_default_falls_back_to_the_bundled_strategy(m
         current = _registry.snapshot_registration("default")
         if current is not None:
             _registry.restore_registration("default", current, previous)
+

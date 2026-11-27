@@ -89,3 +89,4 @@ def test_termux_just_is_checked_by_file_evidence_and_never_run(tmp_path, monkeyp
     entry = _fake_binary(tmp_path)
     assert get_package("just").verify(entry, "linux-arm64-bionic") == ""
     assert get_package("just").verify(tmp_path / "missing", "linux-arm64-bionic") != ""
+

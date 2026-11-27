@@ -124,3 +124,4 @@ def test_a_native_redeclaration_with_env_backed_args_still_credits_the_package(m
     args = ["-m", "meshy", "--key", "${MESHY_PROBE_TOKEN}"]
     native = {"meshy-3d": {"command": "python", "args": args, "trust": "high"}}
     assert _list_meshy_tools(live, native=native, args=args) == live
+

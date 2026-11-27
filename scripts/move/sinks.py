@@ -913,3 +913,4 @@ def _over_modules(node: cst.BaseExpression) -> bool:
 def _records(node: cst.BaseExpression) -> bool:
     code = cst.Module([]).code_for_node(node)
     return code.endswith(".records") or "get_records(" in code or code.endswith("record_tuples")
+

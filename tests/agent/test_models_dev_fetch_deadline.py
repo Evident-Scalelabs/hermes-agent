@@ -60,3 +60,4 @@ def test_cold_fetch_from_a_trickling_registry_returns_within_the_deadline(trickl
     assert md.fetch_models_dev() == {}
     assert md.fetch_models_dev(force_refresh=True) == {}
     assert trickling_registry.gets == 1
+

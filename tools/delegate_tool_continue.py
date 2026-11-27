@@ -250,3 +250,4 @@ def continue_subagent(subagent_id: Optional[str], message: Optional[str], parent
             release(parent_agent, sid, record)
         return tool_error(err)
     return result
+

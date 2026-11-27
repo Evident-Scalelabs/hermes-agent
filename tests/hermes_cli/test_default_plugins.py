@@ -274,3 +274,4 @@ def test_a_retry_that_removed_our_leftover_and_then_failed_stays_owed(tmp_path, 
     assert not (home / "plugins" / "accent-picker").exists()  # the retry removed our leftover
     assert default_plugins.install_defaults(home, entries=entries)["owed"] == ["accent-picker"]
     assert attempts == ["accent-picker"] * 3, "a tree we removed was read as the user's removal"
+

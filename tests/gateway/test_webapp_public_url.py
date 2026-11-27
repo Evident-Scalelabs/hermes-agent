@@ -157,3 +157,4 @@ def test_a_webapp_public_url_without_sign_in_leaves_native_clients_a_listener(tm
     assert report["status"]["state"] == "unavailable"
     assert "webapp.public_url" in report["status"]["reason"]
     assert "dashboard.public_url" not in report["status"]["reason"]
+

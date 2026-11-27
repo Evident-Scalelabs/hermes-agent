@@ -901,3 +901,4 @@ class PluginContext(PluginCapabilityCtxMixin, PluginIdleTaskCtxMixin):
 
 # Every mutating entry point plugins reach through ``ctx`` during register(), mixins included.
 ignore_registrars_after_abandoned_load(PluginContext)
+

@@ -172,3 +172,4 @@ def test_a_fallback_failing_for_its_own_reason_keeps_its_card(reason):
     assert surface['code'] == reason
     if reason == 'rate_limit':
         assert (surface['retryable'], surface['resets_at']) == (True, 1900000000.0)
+

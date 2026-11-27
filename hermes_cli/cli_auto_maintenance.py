@@ -70,3 +70,4 @@ def _run_state_db_auto_maintenance(session_db) -> None:
         )
     except Exception as exc:
         logger.debug("state.db auto-maintenance skipped: %s", exc)
+

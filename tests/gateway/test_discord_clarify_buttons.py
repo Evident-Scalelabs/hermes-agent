@@ -329,3 +329,4 @@ async def test_many_long_choices_fit_content_and_render_literally():
         chat_id="9001", question="Where?", choices=same_ends, clarify_id="cidM", session_key="sk-M")
     content = channel.send.call_args.kwargs["content"]
     assert len(content) <= 2000 and all(f"TARGET={env}" in content for env in ("staging", "canary", "prod", "sandbox"))
+

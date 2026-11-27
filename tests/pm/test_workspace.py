@@ -435,3 +435,4 @@ def test_selected_plugin_extra_naming_core_installs_the_workspace_core(layout):
                      environment=environment)
     installed = {p.name.split("-")[0] for p in site_packages(environment.destination).glob("*.dist-info")}
     assert {"member_dep", "other_dep"} <= installed
+

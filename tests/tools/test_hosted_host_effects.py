@@ -301,3 +301,4 @@ def test_verification_ledger_records_nothing_for_a_hosted_agent(monkeypatch):
     with bind_state(A):
         assert ve._ledger_enabled() is False
     assert ve._ledger_enabled() is True
+
