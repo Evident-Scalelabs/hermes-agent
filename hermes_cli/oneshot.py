@@ -615,14 +615,16 @@ def _run_agent(
         agent.stream_delta_callback = None
         agent.tool_gen_callback = None
 
-        aux_before = _auxiliary_usage(session_db, resume_sid) if ledger else {}
+        # Auxiliary usage is read through the agent's storage interface; without it the ledger is empty.
+        persistence = getattr(agent, "persistence", None)
+        aux_before = _auxiliary_usage(session_db, resume_sid, persistence=persistence) if ledger else {}
         # Relay keys the root conversation to the id at turn entry; compression may rotate
         # agent.session_id mid-turn without opening a second root, so keep the entry id.
         relay_session_id = getattr(agent, "session_id", None)
         result = agent.run_conversation(prompt, conversation_history=conversation_history or None)
         if ledger:
             _attach_auxiliary_usage(result, session_db, aux_before,
-                                    fallback_session_id=agent.session_id or resume_sid)
+                                    fallback_session_id=agent.session_id or resume_sid, persistence=persistence)
         return (result.get("final_response") or "", result)
     finally:
         _close_agent(agent, session_db, relay_session_id)
