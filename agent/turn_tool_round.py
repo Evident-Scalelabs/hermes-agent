@@ -48,7 +48,7 @@ class ToolRoundVerdict:
     result: Optional[dict[str, Any]] = None
 
 
-def run_tool_round(
+def run_tool_round(  # health: allow CC -- carried pre-tool policy exit; splitting upstream's round conflicts every sync
     agent: Any, *, assistant_message: Any, finish_reason: Any, messages: Any,
     conversation_history: Any, api_call_count: Any, effective_task_id: Any, user_message: Any,
     system_message: Any, active_system_prompt: Any, compression_attempts: Any,
